@@ -5,9 +5,11 @@ import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageManager;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
@@ -15,22 +17,22 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.ArrayAdapter;
 import android.widget.BaseAdapter;
-import android.widget.Button;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.Manifest;
 
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.recyclerview.widget.RecyclerView;
+import androidx.core.content.ContextCompat;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 
 public class TestConnection extends AppCompatActivity {
-    private ActionBar action_bar;
     private WifiP2pManager wifi_direct_manager;
     private WifiP2pManager.Channel wifi_direct_channel;
     private BroadcastReceiver wifi_direct_receiver;
@@ -89,11 +91,21 @@ public class TestConnection extends AppCompatActivity {
         }
     };
 
+    private MenuItem permission_requester_pressed_item;
+    private final ActivityResultLauncher<String> permission_requester =
+            registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
+                if (granted) {
+                    if (permission_requester_pressed_item != null)
+                        onOptionsItemSelected(permission_requester_pressed_item);
+                } else {
+                    peer_list_placeholder.setText("Can't scan for nearby devices due to missing permissions.");
+                }
+            });
+
     @Override
     protected void onCreate(Bundle saved_state) {
         super.onCreate(saved_state);
         setContentView(R.layout.test_connection);
-        action_bar = getActionBar();
         peer_list_view = findViewById(R.id.peer_list);
         peer_list_placeholder = findViewById(R.id.peer_list_placeholder);
 //        peer_list_adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, peer_list);
@@ -160,7 +172,12 @@ public class TestConnection extends AppCompatActivity {
     @Override
     public boolean onOptionsItemSelected(@NonNull MenuItem item) {
         if (item.getItemId() == R.id.test_connection_button_scan) {
+            // Make sure we have permissions first
+            if (!acquirePermissions(item))
+                return true;
+
             if (scanning) {
+                // Stop pressed
                 stopWifiDirectScan();
                 scanning = false;
                 peer_list_placeholder.setText("Press \"Scan\" to start scanning for devices.");
@@ -169,6 +186,7 @@ public class TestConnection extends AppCompatActivity {
                 peer_list.clear();
                 peer_list_adapter.notifyDataSetChanged();
             } else {
+                // Start pressed
                 item.setTitle("Stop");
                 peer_list_placeholder.setText("Scanning, no devices found yet.");
                 scanning = true;
@@ -185,13 +203,14 @@ public class TestConnection extends AppCompatActivity {
         try {
             wifi_direct_manager.discoverPeers(wifi_direct_channel, new WifiP2pManager.ActionListener() {
                 @Override
-                public void onSuccess() {
-
-                }
+                public void onSuccess() {}
 
                 @Override
                 public void onFailure(int reasonCode) {
-                    Log.println(Log.ERROR, "TestConnection", "Failed to discover Wi-Fi Direct peers: error code " + reasonCode);
+                    peer_list_placeholder.setText("Failed to discover Wi-Fi Direct peers: error code " + reasonCode);
+                    peer_list_placeholder.setVisibility(View.VISIBLE);
+                    peer_list.clear();
+                    peer_list_adapter.notifyDataSetChanged();
                 }
             });
         } catch (SecurityException e) {
@@ -216,5 +235,40 @@ public class TestConnection extends AppCompatActivity {
         } catch (SecurityException e) {
             Log.e("TestConnection", "Failed to discover Wi-Fi Direct peers due to permission error");
         }
+    }
+
+    private boolean acquirePermissions() {
+        return acquirePermissions(null);
+    }
+
+    private boolean acquirePermissions(MenuItem pressed_item) {
+        permission_requester_pressed_item = pressed_item;
+
+        // Determine needed permissions based on Android version
+        String[] permissions;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
+            permissions = new String[] {Manifest.permission.NEARBY_WIFI_DEVICES};
+        else {
+            permissions = new String[] {
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+            };
+        }
+
+        // Check if permissions are already granted
+        for (String perm : permissions) {
+            if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_DENIED) {
+                // Request permissions from user
+                // NOTE: I should show a UI that informs the user about the permissions before asking
+                permission_requester_pressed_item = pressed_item;
+                permission_requester.launch(perm);
+
+                // Missing permissions
+                return false;
+            }
+        }
+
+        // All permissions are granted
+        return true;
     }
 }
