@@ -5,6 +5,8 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.IntentFilter;
 import android.content.pm.PackageManager;
+import android.net.wifi.WpsInfo;
+import android.net.wifi.p2p.WifiP2pConfig;
 import android.net.wifi.p2p.WifiP2pDevice;
 import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pManager;
@@ -15,17 +17,22 @@ import android.view.MenuInflater;
 import android.view.MenuItem;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.ListView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.Manifest;
+import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -34,13 +41,45 @@ import java.util.List;
 public class TestConnection extends AppCompatActivity {
     private WifiP2pManager wifi_direct_manager;
     private WifiP2pManager.Channel wifi_direct_channel;
-    private BroadcastReceiver wifi_direct_receiver;
     private final IntentFilter intent_filter = new IntentFilter();
     private final List<WifiP2pDevice> peer_list = new ArrayList<>();
-    private ListView peer_list_view;
     private TextView peer_list_placeholder;
     private ProgressBar peer_list_loading;
     boolean scanning = false;
+
+    private final BroadcastReceiver wifi_direct_receiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            String action = intent.getAction();
+            if (action != null) {
+                switch (action) {
+                    case WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION:
+//                            int state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1);
+                        // TODO: UI indicator
+                        break;
+
+                    case WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION:
+                        try {
+                            wifi_direct_manager.requestPeers(wifi_direct_channel, peer_list_listener);
+                        } catch (SecurityException e) {
+                            peer_list_placeholder.setText(R.string.device_scan_permission_error);
+                            peer_list_placeholder.setVisibility(View.VISIBLE);
+                            peer_list_loading.setVisibility(View.INVISIBLE);
+                            peer_list.clear();
+                            peer_list_adapter.notifyDataSetChanged();
+                        }
+                        break;
+
+                    case WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION:
+                        peer_list_adapter.notifyDataSetChanged();
+                        break;
+
+                    case WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION:
+                        break;
+                }
+            }
+        }
+    };
 
     private final BaseAdapter peer_list_adapter = new BaseAdapter() {
         @Override
@@ -123,6 +162,53 @@ public class TestConnection extends AppCompatActivity {
         }
     };
 
+    private final AdapterView.OnItemClickListener peer_list_click_listener = new AdapterView.OnItemClickListener() {
+        @Override
+        public void onItemClick(AdapterView adapterView, View view, int i, long l) {
+            WifiP2pDevice target = peer_list.get(i);
+
+            if (target.status == WifiP2pDevice.AVAILABLE || target.status == WifiP2pDevice.FAILED) {
+                // Haven't connected yet, or connection failed. Connect to new device.
+                WifiP2pConfig config = new WifiP2pConfig();
+                config.deviceAddress = target.deviceAddress;
+                config.wps.setup = WpsInfo.PBC;
+
+                try {
+                    wifi_direct_manager.connect(wifi_direct_channel, config, new WifiP2pManager.ActionListener() {
+                        @Override
+                        public void onSuccess() {}
+
+                        @Override
+                        public void onFailure(int i) {
+                            Toast.makeText(TestConnection.this, R.string.connection_failed, Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                } catch (SecurityException e) {
+                    // This should never happen cause we wouldn't be able to scan for devices in the first place
+                    Toast.makeText(TestConnection.this, R.string.connection_failed, Toast.LENGTH_SHORT).show();
+                }
+            } else if (target.status == WifiP2pDevice.INVITED) {
+                // Cancelling connection to device
+                try {
+                    wifi_direct_manager.cancelConnect(wifi_direct_channel, new WifiP2pManager.ActionListener() {
+                        @Override
+                        public void onSuccess() {}
+
+                        @Override
+                        public void onFailure(int i) {
+                            Toast.makeText(TestConnection.this, R.string.connection_failed, Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                } catch (SecurityException e) {
+                    Toast.makeText(TestConnection.this, R.string.connection_failed, Toast.LENGTH_SHORT).show();
+                }
+            } else if (target.status != WifiP2pDevice.CONNECTED) {
+                // Target device is unavailable
+                Toast.makeText(TestConnection.this, R.string.connection_failed, Toast.LENGTH_SHORT).show();
+            }
+        }
+    };
+
     private MenuItem permission_requester_pressed_item;
     private final ActivityResultLauncher<String> permission_requester =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
@@ -137,11 +223,18 @@ public class TestConnection extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle saved_state) {
         super.onCreate(saved_state);
+//        EdgeToEdge.enable(this);
         setContentView(R.layout.test_connection);
-        peer_list_view = findViewById(R.id.peer_list);
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
+            Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
+            return insets;
+        });
+        ListView peer_list_view = findViewById(R.id.peer_list);
         peer_list_placeholder = findViewById(R.id.peer_list_placeholder);
         peer_list_loading = findViewById(R.id.peer_list_loading);
         peer_list_view.setAdapter(peer_list_adapter);
+        peer_list_view.setOnItemClickListener(peer_list_click_listener);
 
         // Wi-Fi Direct
         intent_filter.addAction(WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION);
@@ -154,40 +247,8 @@ public class TestConnection extends AppCompatActivity {
     }
 
     @Override
-    protected void onResume() {
-        super.onResume();
-        wifi_direct_receiver = new BroadcastReceiver() {
-            @Override
-            public void onReceive(Context context, Intent intent) {
-                String action = intent.getAction();
-                if (action != null) {
-                    switch (action) {
-                        case WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION:
-//                            int state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1);
-                            // TODO: UI indicator
-                            break;
-
-                        case WifiP2pManager.WIFI_P2P_PEERS_CHANGED_ACTION:
-                            try {
-                                wifi_direct_manager.requestPeers(wifi_direct_channel, peer_list_listener);
-                            } catch (SecurityException e) {
-                                peer_list_placeholder.setText(R.string.device_scan_permission_error);
-                                peer_list_placeholder.setVisibility(View.VISIBLE);
-                                peer_list_loading.setVisibility(View.INVISIBLE);
-                                peer_list.clear();
-                                peer_list_adapter.notifyDataSetChanged();
-                            }
-                            break;
-
-                        case WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION:
-                            break;
-
-                        case WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION:
-                            break;
-                    }
-                }
-            }
-        };
+    protected void onStart() {
+        super.onStart();
 
         registerReceiver(wifi_direct_receiver, intent_filter);
         if (scanning)
@@ -195,12 +256,11 @@ public class TestConnection extends AppCompatActivity {
     }
 
     @Override
-    protected void onPause() {
-        super.onPause();
+    protected void onStop() {
+        super.onStop();
         if (scanning)
             stopWifiDirectScan();
         unregisterReceiver(wifi_direct_receiver);
-        wifi_direct_receiver = null;
     }
 
     @Override
@@ -303,10 +363,6 @@ public class TestConnection extends AppCompatActivity {
                 peer_list_adapter.notifyDataSetChanged();
             }
         });
-    }
-
-    private boolean acquirePermissions() {
-        return acquirePermissions(null);
     }
 
     private boolean acquirePermissions(MenuItem pressed_item) {

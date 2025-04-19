@@ -7,11 +7,12 @@
     <string name="device_scan_stop">Stop</string>
     <string name="device_scan_fail_unsupported">Your device doesn\'t support Wi-Fi Direct.</string>
     <string name="device_scan_fail">Failed to scan for nearby devices.</string>
-    <string name="device_scan_fail_busy">Can\'t scan for nearby devices; your device is busy.</string>
+    <string name="device_scan_fail_busy">Can\'t scan for nearby devices. Make sure that Wi-Fi is on and that Wi-Fi Direct is not being used by another app.</string>
     <string name="device_scan_status_available">Ready to connect</string>
     <string name="device_scan_status_connected">Connected over Wi-Fi Direct</string>
     <string name="device_scan_status_failed">Connection failed</string>
-    <string name="device_scan_status_invited">Invited</string>
+    <string name="device_scan_status_invited">Connecting...</string>
     <string name="device_scan_status_unavailable">Unavailable</string>
     <string name="device_scan_status_unknown">Unknown status</string>
+    <string name="connection_failed">Connection failed.</string>
 </resources>

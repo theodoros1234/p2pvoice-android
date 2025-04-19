@@ -1,31 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
-
     <!-- Needed for Wi-Fi Direct -->
     <uses-permission
-        android:required="true"
         android:name="android.permission.ACCESS_FINE_LOCATION"
-        android:maxSdkVersion="32" />
+        android:maxSdkVersion="32"
+        android:required="true" />
     <uses-permission
-        android:required="true"
         android:name="android.permission.ACCESS_COARSE_LOCATION"
-        android:maxSdkVersion="32" />
+        android:maxSdkVersion="32"
+        android:required="true" />
     <uses-permission
-        android:required="true"
         android:name="android.permission.NEARBY_WIFI_DEVICES"
         android:minSdkVersion="33"
+        android:required="true"
         android:usesPermissionFlags="neverForLocation"
         tools:targetApi="s" />
     <uses-permission
-        android:required="true"
-        android:name="android.permission.ACCESS_WIFI_STATE"/>
+        android:name="android.permission.ACCESS_WIFI_STATE"
+        android:required="true" />
     <uses-permission
-        android:required="true"
-        android:name="android.permission.CHANGE_WIFI_STATE"/>
+        android:name="android.permission.CHANGE_WIFI_STATE"
+        android:required="true" />
     <uses-permission
-        android:required="true"
-        android:name="android.permission.INTERNET"/>
+        android:name="android.permission.INTERNET"
+        android:required="true" />
 
     <application
         android:allowBackup="true"
@@ -36,15 +35,20 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.DayNight"
-        tools:targetApi="34" >
-
-        <activity android:name=".TestConnection" android:exported="true">
+        tools:targetApi="34">
+        <activity
+            android:name=".TestConnectionConnect"
+            android:exported="false"
+            android:label="Connect to device" />
+        <activity
+            android:name=".TestConnection"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
+
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
-
     </application>
 
 </manifest>
