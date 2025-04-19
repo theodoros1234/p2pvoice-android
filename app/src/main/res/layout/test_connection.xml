@@ -6,6 +6,23 @@
     android:layout_height="match_parent"
     tools:context=".TestConnection">
 
+    <ListView
+        android:id="@+id/peer_list"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+    </ListView>
+
+    <ProgressBar
+        android:id="@+id/peer_list_loading"
+        style="?android:attr/progressBarStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_below="@+id/peer_list_placeholder"
+        android:layout_centerHorizontal="true"
+        android:layout_marginTop="32dp"
+        android:visibility="invisible" />
+
     <TextView
         android:id="@+id/peer_list_placeholder"
         android:layout_width="match_parent"
@@ -15,13 +32,8 @@
         android:layout_centerHorizontal="true"
         android:layout_marginHorizontal="32dp"
         android:layout_marginTop="32dp"
-        android:text="Press &quot;Scan&quot; to start scanning for devices."
+        android:text="@string/device_scan_press_scan"
         android:textAlignment="center"
         android:textSize="16sp" />
-
-    <ListView
-        android:id="@+id/peer_list"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
 
 </RelativeLayout>

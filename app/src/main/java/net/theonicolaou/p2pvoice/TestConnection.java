@@ -1,6 +1,5 @@
 package net.theonicolaou.p2pvoice;
 
-import android.app.ActionBar;
 import android.content.BroadcastReceiver;
 import android.content.Context;
 import android.content.Intent;
@@ -11,7 +10,6 @@ import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -19,6 +17,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.BaseAdapter;
 import android.widget.ListView;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.Manifest;
 
@@ -37,9 +36,10 @@ public class TestConnection extends AppCompatActivity {
     private WifiP2pManager.Channel wifi_direct_channel;
     private BroadcastReceiver wifi_direct_receiver;
     private final IntentFilter intent_filter = new IntentFilter();
-    private List<WifiP2pDevice> peer_list = new ArrayList<>();
+    private final List<WifiP2pDevice> peer_list = new ArrayList<>();
     private ListView peer_list_view;
     private TextView peer_list_placeholder;
+    private ProgressBar peer_list_loading;
     boolean scanning = false;
 
     private final BaseAdapter peer_list_adapter = new BaseAdapter() {
@@ -65,8 +65,37 @@ public class TestConnection extends AppCompatActivity {
             if (view == null) {
                 view = getLayoutInflater().inflate(android.R.layout.simple_list_item_2, viewGroup, false);
             }
-            ((TextView) view.findViewById(android.R.id.text1)).setText(((WifiP2pDevice) getItem(i)).deviceName);
-            ((TextView) view.findViewById(android.R.id.text2)).setText(((WifiP2pDevice) getItem(i)).deviceAddress);
+
+            WifiP2pDevice device = (WifiP2pDevice) getItem(i);
+            String status;
+            switch (device.status) {
+                case WifiP2pDevice.AVAILABLE:
+                    status = getResources().getString(R.string.device_scan_status_available);
+                    break;
+
+                case WifiP2pDevice.CONNECTED:
+                    status = getResources().getString(R.string.device_scan_status_connected);
+                    break;
+
+                case WifiP2pDevice.FAILED:
+                    status = getResources().getString(R.string.device_scan_status_failed);
+                    break;
+
+                case WifiP2pDevice.INVITED:
+                    status = getResources().getString(R.string.device_scan_status_invited);
+                    break;
+
+                case WifiP2pDevice.UNAVAILABLE:
+                    status = getResources().getString(R.string.device_scan_status_unavailable);
+                    break;
+
+                default:
+                    status = getResources().getString(R.string.device_scan_status_unknown);
+                    break;
+            }
+
+            ((TextView) view.findViewById(android.R.id.text1)).setText(device.deviceName);
+            ((TextView) view.findViewById(android.R.id.text2)).setText(status);
             return view;
         }
     };
@@ -84,10 +113,13 @@ public class TestConnection extends AppCompatActivity {
                 peer_list_adapter.notifyDataSetChanged();
             }
 
-            if (refreshed_peers.isEmpty())
+            if (refreshed_peers.isEmpty()) {
                 peer_list_placeholder.setVisibility(View.VISIBLE);
-            else
+                peer_list_loading.setVisibility(View.VISIBLE);
+            } else {
                 peer_list_placeholder.setVisibility(View.INVISIBLE);
+                peer_list_loading.setVisibility(View.INVISIBLE);
+            }
         }
     };
 
@@ -98,7 +130,7 @@ public class TestConnection extends AppCompatActivity {
                     if (permission_requester_pressed_item != null)
                         onOptionsItemSelected(permission_requester_pressed_item);
                 } else {
-                    peer_list_placeholder.setText("Can't scan for nearby devices due to missing permissions.");
+                    peer_list_placeholder.setText(R.string.device_scan_permission_error);
                 }
             });
 
@@ -108,7 +140,7 @@ public class TestConnection extends AppCompatActivity {
         setContentView(R.layout.test_connection);
         peer_list_view = findViewById(R.id.peer_list);
         peer_list_placeholder = findViewById(R.id.peer_list_placeholder);
-//        peer_list_adapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, peer_list);
+        peer_list_loading = findViewById(R.id.peer_list_loading);
         peer_list_view.setAdapter(peer_list_adapter);
 
         // Wi-Fi Direct
@@ -131,7 +163,7 @@ public class TestConnection extends AppCompatActivity {
                 if (action != null) {
                     switch (action) {
                         case WifiP2pManager.WIFI_P2P_STATE_CHANGED_ACTION:
-                            int state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1);
+//                            int state = intent.getIntExtra(WifiP2pManager.EXTRA_WIFI_STATE, -1);
                             // TODO: UI indicator
                             break;
 
@@ -139,7 +171,11 @@ public class TestConnection extends AppCompatActivity {
                             try {
                                 wifi_direct_manager.requestPeers(wifi_direct_channel, peer_list_listener);
                             } catch (SecurityException e) {
-                                Log.e("TestConnection", "Failed to list Wi-Fi Direct peers due to permission error");
+                                peer_list_placeholder.setText(R.string.device_scan_permission_error);
+                                peer_list_placeholder.setVisibility(View.VISIBLE);
+                                peer_list_loading.setVisibility(View.INVISIBLE);
+                                peer_list.clear();
+                                peer_list_adapter.notifyDataSetChanged();
                             }
                             break;
 
@@ -154,12 +190,17 @@ public class TestConnection extends AppCompatActivity {
         };
 
         registerReceiver(wifi_direct_receiver, intent_filter);
+        if (scanning)
+            startWifiDirectScan();
     }
 
     @Override
     protected void onPause() {
         super.onPause();
+        if (scanning)
+            stopWifiDirectScan();
         unregisterReceiver(wifi_direct_receiver);
+        wifi_direct_receiver = null;
     }
 
     @Override
@@ -176,21 +217,31 @@ public class TestConnection extends AppCompatActivity {
             if (!acquirePermissions(item))
                 return true;
 
-            if (scanning) {
-                // Stop pressed
-                stopWifiDirectScan();
-                scanning = false;
-                peer_list_placeholder.setText("Press \"Scan\" to start scanning for devices.");
+            try {
+                if (scanning) {
+                    // Stop pressed
+                    stopWifiDirectScan();
+                    scanning = false;
+                    peer_list_placeholder.setText(R.string.device_scan_press_scan);
+                    peer_list_placeholder.setVisibility(View.VISIBLE);
+                    peer_list_loading.setVisibility(View.INVISIBLE);
+                    item.setTitle(R.string.device_scan_start);
+                    peer_list.clear();
+                    peer_list_adapter.notifyDataSetChanged();
+                } else {
+                    // Start pressed
+                    item.setTitle(R.string.device_scan_stop);
+                    peer_list_placeholder.setText(R.string.device_scan_scanning);
+                    peer_list_loading.setVisibility(View.VISIBLE);
+                    scanning = true;
+                    startWifiDirectScan();
+                }
+            } catch (SecurityException e) {
+                peer_list_placeholder.setText(R.string.device_scan_permission_error);
                 peer_list_placeholder.setVisibility(View.VISIBLE);
-                item.setTitle("Start");
+                peer_list_loading.setVisibility(View.INVISIBLE);
                 peer_list.clear();
                 peer_list_adapter.notifyDataSetChanged();
-            } else {
-                // Start pressed
-                item.setTitle("Stop");
-                peer_list_placeholder.setText("Scanning, no devices found yet.");
-                scanning = true;
-                startWifiDirectScan();
             }
             return true;
         } else {
@@ -198,43 +249,60 @@ public class TestConnection extends AppCompatActivity {
         }
     }
 
-    protected void startWifiDirectScan() {
-        // TODO: Replace the try/catch block with a proper permission check and request
-        try {
-            wifi_direct_manager.discoverPeers(wifi_direct_channel, new WifiP2pManager.ActionListener() {
-                @Override
-                public void onSuccess() {}
+    protected void startWifiDirectScan() throws SecurityException {
+        wifi_direct_manager.discoverPeers(wifi_direct_channel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {}
 
-                @Override
-                public void onFailure(int reasonCode) {
-                    peer_list_placeholder.setText("Failed to discover Wi-Fi Direct peers: error code " + reasonCode);
-                    peer_list_placeholder.setVisibility(View.VISIBLE);
-                    peer_list.clear();
-                    peer_list_adapter.notifyDataSetChanged();
+            @Override
+            public void onFailure(int reason_code) {
+                switch (reason_code) {
+                    case WifiP2pManager.P2P_UNSUPPORTED:
+                        peer_list_placeholder.setText(R.string.device_scan_fail_unsupported);
+                        break;
+
+                    case WifiP2pManager.BUSY:
+                        peer_list_placeholder.setText(R.string.device_scan_fail_busy);
+                        break;
+
+                    case WifiP2pManager.ERROR:
+                    default:
+                        peer_list_placeholder.setText(R.string.device_scan_fail);
                 }
-            });
-        } catch (SecurityException e) {
-            Log.e("TestConnection", "Failed to discover Wi-Fi Direct peers due to permission error");
-        }
+                peer_list_placeholder.setVisibility(View.VISIBLE);
+                peer_list_loading.setVisibility(View.INVISIBLE);
+                peer_list.clear();
+                peer_list_adapter.notifyDataSetChanged();
+            }
+        });
     }
 
-    protected void stopWifiDirectScan() {
-        // TODO: Replace the try/catch block with a proper permission check and request
-        try {
-            wifi_direct_manager.stopPeerDiscovery(wifi_direct_channel, new WifiP2pManager.ActionListener() {
-                @Override
-                public void onSuccess() {
+    protected void stopWifiDirectScan() throws SecurityException {
+        wifi_direct_manager.stopPeerDiscovery(wifi_direct_channel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {}
 
-                }
+            @Override
+            public void onFailure(int reason_code) {
+                switch (reason_code) {
+                    case WifiP2pManager.P2P_UNSUPPORTED:
+                        peer_list_placeholder.setText(R.string.device_scan_fail_unsupported);
+                        break;
 
-                @Override
-                public void onFailure(int reasonCode) {
-                    Log.println(Log.ERROR, "TestConnection", "Failed to stop search for Wi-Fi Direct peers: error code " + reasonCode);
+                    case WifiP2pManager.BUSY:
+                        peer_list_placeholder.setText(R.string.device_scan_fail_busy);
+                        break;
+
+                    case WifiP2pManager.ERROR:
+                    default:
+                        peer_list_placeholder.setText(R.string.device_scan_fail);
                 }
-            });
-        } catch (SecurityException e) {
-            Log.e("TestConnection", "Failed to discover Wi-Fi Direct peers due to permission error");
-        }
+                peer_list_placeholder.setVisibility(View.VISIBLE);
+                peer_list_loading.setVisibility(View.INVISIBLE);
+                peer_list.clear();
+                peer_list_adapter.notifyDataSetChanged();
+            }
+        });
     }
 
     private boolean acquirePermissions() {
@@ -246,9 +314,9 @@ public class TestConnection extends AppCompatActivity {
 
         // Determine needed permissions based on Android version
         String[] permissions;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            permissions = new String[] {Manifest.permission.NEARBY_WIFI_DEVICES};
-        else {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions = new String[]{Manifest.permission.NEARBY_WIFI_DEVICES};
+        } else {
             permissions = new String[] {
                     Manifest.permission.ACCESS_FINE_LOCATION,
                     Manifest.permission.ACCESS_COARSE_LOCATION
