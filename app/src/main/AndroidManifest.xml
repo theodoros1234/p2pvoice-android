@@ -26,6 +26,12 @@
         android:name="android.permission.INTERNET"
         android:required="true" />
 
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+
+    <uses-feature android:name="android.hardware.camera" />
+    <uses-feature android:name="android.hardware.microphone" />
+
     <application
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -39,10 +45,12 @@
         <activity
             android:name=".TestConnectionConnect"
             android:exported="false"
-            android:label="Connect to device" />
+            android:label="Connect to device"
+            android:screenOrientation="portrait" />
         <activity
             android:name=".TestConnection"
-            android:exported="true">
+            android:exported="true"
+            android:screenOrientation="portrait" >
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
 

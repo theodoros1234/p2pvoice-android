@@ -15,4 +15,8 @@
     <string name="device_scan_status_unavailable">Unavailable</string>
     <string name="device_scan_status_unknown">Unknown status</string>
     <string name="connection_failed">Connection failed.</string>
+    <string name="test_call_permission_error">Can\'t call due to missing permissions.</string>
+    <string name="test_call_camera_missing">No camera detected.</string>
+    <string name="test_call_camera_error">Can\'t access camera. Make sure it\'s not being used by another app.</string>
+    <string name="test_call_camera_preview_error">Camera preview failed.</string>
 </resources>

@@ -71,7 +71,11 @@ public class TestConnection extends AppCompatActivity {
                         break;
 
                     case WifiP2pManager.WIFI_P2P_CONNECTION_CHANGED_ACTION:
+                        // Update UI
                         peer_list_adapter.notifyDataSetChanged();
+
+                        // Get connection info, which will launch the call activity if there's a connection
+                        wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
                         break;
 
                     case WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION:
@@ -192,7 +196,8 @@ public class TestConnection extends AppCompatActivity {
                 try {
                     wifi_direct_manager.cancelConnect(wifi_direct_channel, new WifiP2pManager.ActionListener() {
                         @Override
-                        public void onSuccess() {}
+                        public void onSuccess() {
+                        }
 
                         @Override
                         public void onFailure(int i) {
@@ -202,11 +207,25 @@ public class TestConnection extends AppCompatActivity {
                 } catch (SecurityException e) {
                     Toast.makeText(TestConnection.this, R.string.connection_failed, Toast.LENGTH_SHORT).show();
                 }
-            } else if (target.status != WifiP2pDevice.CONNECTED) {
+            } else if (target.status == WifiP2pDevice.CONNECTED) {
+                // Already connected, request connection info to start voice call activity
+                wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
+            } else {
                 // Target device is unavailable
                 Toast.makeText(TestConnection.this, R.string.connection_failed, Toast.LENGTH_SHORT).show();
             }
         }
+    };
+
+    private final WifiP2pManager.ConnectionInfoListener connection_listener = info -> {
+        if (!info.groupFormed)
+            return;
+
+        // Launch new activity for call connection
+        Intent intent = new Intent(TestConnection.this, TestConnectionConnect.class);
+        intent.putExtra(getPackageName() + ".HostAddress", info.groupOwnerAddress.getHostAddress());
+        intent.putExtra(getPackageName() + ".IsServer", info.isGroupOwner);
+        startActivity(intent);
     };
 
     private MenuItem permission_requester_pressed_item;
@@ -223,7 +242,6 @@ public class TestConnection extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle saved_state) {
         super.onCreate(saved_state);
-//        EdgeToEdge.enable(this);
         setContentView(R.layout.test_connection);
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main), (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
