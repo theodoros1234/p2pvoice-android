@@ -4,16 +4,7 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.Camera;
-import android.media.AudioAttributes;
-import android.media.AudioDeviceInfo;
-import android.media.CamcorderProfile;
-import android.media.MediaCodecInfo;
-import android.media.MediaPlayer;
-import android.media.MediaRecorder;
 import android.os.Bundle;
-import android.os.Parcel;
-import android.os.ParcelFileDescriptor;
-import android.provider.MediaStore;
 import android.util.Log;
 import android.view.SurfaceView;
 import android.widget.Button;
@@ -30,14 +21,6 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
-import java.io.BufferedReader;
-import java.io.FileDescriptor;
-import java.io.FileInputStream;
-import java.io.FileOutputStream;
-import java.io.FileReader;
-import java.io.IOException;
-import java.nio.Buffer;
-
 public class TestConnectionConnect extends AppCompatActivity {
     private static final int port = 8798;
     private static final int bitrate_video = 2000000;
@@ -51,52 +34,11 @@ public class TestConnectionConnect extends AppCompatActivity {
     private TestConnectionCameraPreview preview_local;
     private Camera camera;
     private boolean started = false;
-    private MediaRecorder recorder;
-    private MediaPlayer player;
     private TestConnectionSocket socket;
 
     private final TestConnectionSocket.StatusListener socket_status_listener = fd -> {
         Log.d(this.getClass().getName(), "Connection ready, starting video.");
-        /*
-        BufferedReader in = new BufferedReader(new FileReader(fd));
-        FileOutputStream out = new FileOutputStream(fd);
-        for (int i=0; i<20; i++) {
-            try {
-                out.write(("Hi from " + android.os.Build.MODEL + "\n").getBytes());
-            } catch (IOException e) {
-                Log.d(this.getClass().getName(), "IOException when test writing to socket");
-            }
-        }
-        for (int i=0; i<20; i++) {
-            try {
-                Log.d(this.getClass().getName(), "Received: " + in.readLine());
-            } catch (IOException e) {
-                Log.d(this.getClass().getName(), "IOException when test reading from socket");
-            }
-        }
-        */
         // Socket connected, start video transmission
-        if (started && recorder == null && player == null)
-            videoStart(fd);
-    };
-
-    private final MediaRecorder.OnErrorListener recorder_error = (mr, what, extra) -> {
-        Log.w(this.getClass().getName(), "MediaRecorder error what=" + what + " extra=" + extra);
-        // Video failed, stop and reconnect (if not done already)
-        if (started && recorder != null) {
-            videoStop();
-            socket.reconnect();
-        }
-    };
-
-    private final MediaPlayer.OnErrorListener player_error = (mp, what, extra) -> {
-        Log.w(this.getClass().getName(), "MediaPlayer error what=" + what + " extra=" + extra);
-        // Video failed, stop and reconnect (if not done already)
-        if (started && player != null) {
-            videoStop();
-            socket.reconnect();
-        }
-        return true;
     };
 
     private ActivityResultLauncher<String> permission_launcher =
@@ -201,7 +143,7 @@ public class TestConnectionConnect extends AppCompatActivity {
 
     private void callStop() {
         Log.d(this.getClass().getName(), "Stopping call");
-        videoStop();
+//        videoStop();
 
         // Stop network
         socket.shutdown();
@@ -217,127 +159,5 @@ public class TestConnectionConnect extends AppCompatActivity {
         camera = null;
 
         started = false;
-    }
-
-    // NOTE: Might set some of these to return booleans
-    private void videoStart(FileDescriptor fd) {
-        if (started && videoOutStart(fd)) {
-            if (!videoInStart(fd)) {
-                videoOutStop();
-                if (socket != null)
-                    socket.reconnect();
-            }
-        }
-    }
-
-    private void videoStop() {
-        videoOutStop();
-        videoInStop();
-    }
-
-    private boolean videoOutStart(FileDescriptor fd) {
-        Log.d(this.getClass().getName(), "Starting video out");
-        if (recorder != null)
-            return false;
-
-        recorder = new MediaRecorder();
-        recorder.setOnErrorListener(recorder_error);
-//        camera.unlock();
-//        recorder.setCamera(camera);
-        recorder.setAudioSource(MediaRecorder.AudioSource.MIC);
-//        recorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
-        recorder.setOutputFormat(MediaRecorder.OutputFormat.AAC_ADTS);
-//        recorder.setProfile(CamcorderProfile.get(1, CamcorderProfile.QUALITY_LOW));
-        recorder.setAudioChannels(1);
-        recorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC);
-        recorder.setAudioSamplingRate(48000);
-//        recorder.setVideoEncoder(MediaRecorder.VideoEncoder.H264);
-//        recorder.setVideoSize(720, 1280);
-//        recorder.setVideoFrameRate(30);
-        recorder.setAudioEncodingBitRate(bitrate_audio);
-//        recorder.setVideoEncodingBitRate(bitrate_video);
-//        ParcelFileDescriptor[] test;
-//        try {
-//            test = ParcelFileDescriptor.createPipe();
-//        } catch (IOException e) {
-//            throw new RuntimeException(e);
-//        }
-//        fd = test[1].getFileDescriptor();
-//        recorder.setOutputFile(fd);
-        recorder.setOutputFile("/dev/null");
-//        recorder.setPreviewDisplay(preview_local.getHolder().getSurface()); // may not be needed?
-        try {
-            recorder.prepare();
-            recorder.start();
-        } catch (IllegalStateException e) {
-            Log.e(this.getClass().getName(), "IllegalStateException when starting MediaRecorder: " + e.getMessage());
-            Toast.makeText(this, R.string.test_call_media_error, Toast.LENGTH_SHORT).show();
-            recorder.release();
-            recorder = null;
-            return false;
-        } catch (IOException e) {
-            Log.e(this.getClass().getName(), "IOException when starting MediaRecorder: " + e.getMessage());
-            Toast.makeText(this, R.string.test_call_media_error, Toast.LENGTH_SHORT).show();
-            recorder.release();
-            recorder = null;
-            return false;
-        }
-
-        return true;
-    }
-
-    private void videoOutStop() {
-        Log.d(this.getClass().getName(), "Stopping video out");
-        if (recorder == null)
-            return;
-
-        recorder.stop();
-        recorder.release();
-        recorder = null;
-//        camera.lock();
-    }
-
-    private boolean videoInStart(FileDescriptor fd) {
-        Log.d(this.getClass().getName(), "Starting video in");
-        if (player != null)
-            return false;
-
-        player = new MediaPlayer();
-        player.setAudioAttributes(
-                new AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-        );
-//        player.setPreferredDevice();
-//        player.setScreenOnWhilePlaying(true);
-//        player.setDisplay(preview_remote.getHolder());
-        player.setOnErrorListener(player_error);
-
-        try {
-            player.setDataSource(fd);
-            player.prepare();
-        } catch (IOException e) {
-            Log.e(this.getClass().getName(), "IOException when starting MediaPlayer: " + e.getMessage());
-            Toast.makeText(this, R.string.test_call_media_error, Toast.LENGTH_SHORT).show();
-            player.release();
-            player = null;
-            return false;
-        }
-
-        // Start
-        player.start();
-
-        return true;
-    }
-
-    private void videoInStop() {
-        Log.d(this.getClass().getName(), "Stopping video in");
-        if (player == null)
-            return;
-
-        player.stop();
-        player.release();
-        player = null;
     }
 }
