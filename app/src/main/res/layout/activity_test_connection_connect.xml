@@ -36,13 +36,15 @@
         android:layout_above="@+id/button_container"
         android:layout_alignParentTop="true"
         android:layout_marginTop="0dp"
-        android:layout_marginBottom="0dp" />
+        android:layout_marginBottom="0dp"
+        android:keepScreenOn="true" />
 
-    <FrameLayout
+    <SurfaceView
         android:id="@+id/preview_local"
         android:layout_width="144dp"
         android:layout_height="256dp"
         android:layout_above="@+id/button_container"
         android:layout_alignParentLeft="true"
-        android:layout_marginBottom="0dp" />
+        android:layout_marginBottom="0dp"
+        android:keepScreenOn="true" />
 </RelativeLayout>

@@ -3,22 +3,18 @@ package net.theonicolaou.p2pvoice;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.graphics.ImageFormat;
-import android.hardware.Camera;
+import android.hardware.camera2.CameraAccessException;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.os.Bundle;
 import android.util.Log;
-import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.Button;
-import android.widget.FrameLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -27,6 +23,8 @@ import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
 public class TestConnectionConnect extends AppCompatActivity {
+    private static final String TAG = "TestConnectionConnect";
+
     private static final int port = 8798;
     private static final int bitrate_video = 4000000;
     private static final int bitrate_audio = 192000;
@@ -34,17 +32,16 @@ public class TestConnectionConnect extends AppCompatActivity {
     private TextView info;
     private String host_address;
     private Boolean is_server;
-    private SurfaceView preview_remote;
-    private FrameLayout preview_local_container;
-    private TestConnectionCameraPreview preview_local;
-    private Camera camera;
+    private SurfaceView preview_remote, preview_local;
     private boolean started = false;
     private TestConnectionSocket socket;
     private VideoEncoder video_encoder;
     private VideoDecoder video_decoder;
+    private CallCamera camera;
+    private final int camera_width = 1280, camera_height = 720, camera_fps = 30;
 
     private final TestConnectionSocket.StatusListener socket_status_listener = fd -> {
-        Log.d(this.getClass().getName(), "Connection ready, starting video.");
+        Log.d(TAG, "Connection ready, starting video.");
         // Socket connected, start video transmission
     };
 
@@ -57,12 +54,6 @@ public class TestConnectionConnect extends AppCompatActivity {
             Toast.makeText(this, R.string.test_call_permission_error, Toast.LENGTH_SHORT).show();
         }
     });
-
-    private Camera.PreviewCallback camera_frame_callback = (bytes, camera) -> {
-        if (video_encoder != null) {
-            video_encoder.pushFrame(bytes.clone());
-        }
-    };
 
     private VideoEncoder.Callback video_encoder_callback = (frame) -> {
         if (video_decoder != null)
@@ -80,7 +71,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         });
         Button button_mute = findViewById(R.id.button_mute);
         Button button_camera_toggle = findViewById(R.id.button_camera_toggle);
-        preview_local_container = findViewById(R.id.preview_local);
+        preview_local = findViewById(R.id.preview_local);
         preview_remote = findViewById(R.id.preview_remote);
 
         // Enable back button
@@ -97,6 +88,14 @@ public class TestConnectionConnect extends AppCompatActivity {
         // Cancel if info missing from intent
         if (host_address == null)
             finish();
+
+        // Initialize camera
+        try {
+            camera = new CallCamera(this, preview_local.getHolder(), camera_width, camera_height);
+        } catch (CameraAccessException e) {
+            Log.e(TAG, "Failed to initialize camera handler: CameraAccessException " + e.getMessage());
+            Toast.makeText(this, R.string.camera_failed, Toast.LENGTH_SHORT).show();
+        }
 
         // TEST
         MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
@@ -119,6 +118,13 @@ public class TestConnectionConnect extends AppCompatActivity {
         callStop();
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (camera != null)
+            camera.close();
+    }
+
     private boolean acquirePermission(String permission) {
         if (ContextCompat.checkSelfPermission(this, permission) == PackageManager.PERMISSION_GRANTED)
             return true;
@@ -128,7 +134,7 @@ public class TestConnectionConnect extends AppCompatActivity {
     }
 
     private void callStart() {
-        Log.d(this.getClass().getName(), "Starting call");
+        Log.d(TAG, "Starting call");
         // Don't do anything if already started
         if (started)
             return;
@@ -143,29 +149,12 @@ public class TestConnectionConnect extends AppCompatActivity {
             return;
         }
 
-        // Get camera
-        try {
-            camera = Camera.open(1);
-        } catch (Exception e) {
-            Toast.makeText(this, R.string.test_call_camera_error, Toast.LENGTH_SHORT).show();
-            return;
-        }
-
         started = true;
 
-        // Camera preview
-        int width=1280, height=720, fps=30;
         String video_format = "video/avc";
-        camera.setDisplayOrientation(90);
-        Camera.Parameters params = camera.getParameters();
-        params.setPreviewSize(width, height);
-        params.setPreviewFrameRate(fps);
-        params.setPreviewFormat(ImageFormat.NV21);
-        camera.setParameters(params);
-        camera.setPreviewCallback(camera_frame_callback);
-//        preview_local = new TestConnectionCameraPreview(this, camera);
-//        preview_local_container.addView(preview_local);
-        camera.startPreview();      // DEBUG
+
+        if (camera != null)
+            camera.start();
 
         // Start network connection
 //        if (is_server)
@@ -174,6 +163,7 @@ public class TestConnectionConnect extends AppCompatActivity {
 //            socket = new TestConnectionSocketClient(this, socket_status_listener, host_address, port);
 //        socket.start();
         // Video encoding/decoding will be started later when connection is active
+        /*
         try {
             video_encoder = new VideoEncoder(video_format, width, height, fps, bitrate_video, 15, video_encoder_callback, getMainLooper());
             video_encoder.start();
@@ -211,12 +201,16 @@ public class TestConnectionConnect extends AppCompatActivity {
                     video_decoder = null;
                 }
             }
-        });
+        });*/
     }
 
     private void callStop() {
-        Log.d(this.getClass().getName(), "Stopping call");
+        Log.d(TAG, "Stopping call");
 
+        if (camera != null)
+            camera.stop();
+
+/*
         if (video_decoder != null) {
             video_decoder.stop();
             video_decoder = null;
@@ -226,7 +220,7 @@ public class TestConnectionConnect extends AppCompatActivity {
             video_encoder.stop();
             video_encoder = null;
         }
-
+*/
         // Stop network
 //        socket.shutdown();
 //        try {
@@ -235,13 +229,6 @@ public class TestConnectionConnect extends AppCompatActivity {
 //        socket = null;
 
         // Stop camera
-        preview_local_container.removeAllViews();
-        preview_local = null;
-        if (camera != null) {
-            camera.stopPreview();       // DEBUG
-            camera.release();
-            camera = null;
-        }
 
         started = false;
     }

@@ -24,4 +24,5 @@
     <string name="test_call_video_encode_failed">Video encoder error</string>
     <string name="test_call_video_decode_unsupported">Unsupported video decoding format</string>
     <string name="test_call_video_decode_failed">Video decoder error</string>
+    <string name="camera_failed">Camera failed</string>
 </resources>
