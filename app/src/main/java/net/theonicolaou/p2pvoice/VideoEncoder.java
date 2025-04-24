@@ -26,49 +26,24 @@ public class VideoEncoder {
     private static final String TAG = "VideoEncoder";
     private static final MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
 
-    MediaCodec encoder;
-    private HandlerThread thread;
-    private Handler handler;
-    private MediaFormat format;
-    private String codec;
-    private int width, height, fps;
+    private final MediaCodec encoder;
+//    private HandlerThread thread;
+//    private Handler handler;
+    private Thread thread;
+    private final MediaFormat format;
+    private final String codec;
+    private final int width, height, fps;
     private long timestamp = 0, timestamp_interval;
-    private Callback upstream_callback;
-    private Handler upstream_handler;
+    private final Callback upstream_callback;
+    private final Handler upstream_handler;
+    private final Surface input_surface;
+    private boolean configured = false;
 
+    /*
     private MediaCodec.Callback encoder_callback = new MediaCodec.Callback() {
+        // Ignored due to using an input surface
         @Override
-        public void onInputBufferAvailable(@NonNull MediaCodec encoder, int i) {
-            /* Code used as a workaround for old devices, not needed. Keeping just in case.
-            if (image_reader == null)
-                return;
-
-            ByteBuffer encoder_buffer = encoder.getInputBuffer(i);
-            Image.Plane[] image_planes = image_reader.acquireNextImage().getPlanes();
-            ByteBuffer planeY = image_planes[0].getBuffer();
-            ByteBuffer planeU = image_planes[1].getBuffer();
-            ByteBuffer planeV = image_planes[2].getBuffer();
-            encoder_buffer.put(planeY);
-            encoder.queueInputBuffer(i, 0, planeY.capacity(), timestamp, 0);
-            timestamp += timestamp_interval;
-
-            /*
-            // Warning: holding onto this buffer may stall the decoder
-            byte[] frame;
-            // Grab frame from queue
-            try {
-                frame = queue_input.take();
-            } catch (InterruptedException e) {
-                // Stopping
-                return;
-            }
-
-            // Put it into the decoder's buffer
-            ByteBuffer buffer = encoder.getInputBuffer(i);
-            buffer.put(frame);
-            encoder.queueInputBuffer(i, 0, frame.length, timestamp, 0);
-            timestamp += timestamp_interval;*/
-        }
+        public void onInputBufferAvailable(@NonNull MediaCodec encoder, int i) {}
 
         @Override
         public void onOutputBufferAvailable(@NonNull MediaCodec encoder, int i, @NonNull MediaCodec.BufferInfo bufferInfo) {
@@ -95,6 +70,9 @@ public class VideoEncoder {
             // I don't expect this to happen
         }
     };
+    */
+
+
 
     public static boolean checkInputSurfaceCompatibility(String mime, int width, int height) {
         MediaFormat format = MediaFormat.createVideoFormat(mime, width, height);
@@ -124,6 +102,7 @@ public class VideoEncoder {
         this.timestamp_interval = 1000000/fps; // microseconds
         this.upstream_callback = callback;
         this.upstream_handler = new Handler(callback_looper);
+        this.input_surface = input_surface;
         format = MediaFormat.createVideoFormat(mime, width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         codec = list.findEncoderForFormat(format);
@@ -135,36 +114,66 @@ public class VideoEncoder {
         format.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
         format.setInteger(MediaFormat.KEY_BITRATE_MODE, MediaCodecInfo.EncoderCapabilities.BITRATE_MODE_CBR);
         format.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, fps);
-
-        thread = new HandlerThread(TAG);
-        thread.start();
-        handler = new Handler(thread.getLooper());
-
         try {
             encoder = MediaCodec.createByCodecName(codec);
-            encoder.setCallback(encoder_callback, handler);
-            encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-            encoder.setInputSurface(input_surface);
         } catch (IOException e) {
             throw new EncoderFailed();
         }
+
+        configure();
+    }
+
+    private void configure() {
+        thread = new Thread(() -> {
+            Log.i(TAG, "Output buffer thread is running.");
+            while (true) {
+                MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
+                int index = encoder.dequeueOutputBuffer(info, -1);
+
+//                Log.d(TAG, "Got frame with index=" + index + " flags=" + info.flags);
+                if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0)
+                    break;
+                if (index < 0)
+                    continue;
+
+                byte[] frame = new byte[info.size];
+                ByteBuffer buffer = encoder.getOutputBuffer(index);
+                buffer.position(info.offset);
+                buffer.get(frame, 0, info.size);
+                encoder.releaseOutputBuffer(index, false);
+
+                upstream_callback.onOutputFrameAvailable(frame);
+            }
+            Log.i(TAG, "Output buffer thread has finished.");
+        });
+
+        encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+        encoder.setInputSurface(input_surface);
+        configured = true;
     }
 
     public void start() {
         Log.d(TAG, "Starting");
+        if (!configured)
+            configure();
         encoder.start();
+        thread.start();
     }
 
     public void stop() {
         Log.d(TAG, "Stopping");
-        encoder.stop();
-        thread.quit();
-        thread.interrupt(); // Interrupts thread in case it's waiting on an empty queue
+        encoder.signalEndOfInputStream();
         try {
             thread.join();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
+        encoder.reset();
+        configured = false;
+    }
+
+    public void release() {
+        Log.d(TAG, "Releasing resources");
         encoder.release();
     }
 }

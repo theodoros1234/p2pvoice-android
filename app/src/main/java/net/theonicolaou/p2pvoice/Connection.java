@@ -2,7 +2,7 @@ package net.theonicolaou.p2pvoice;
 
 import java.io.IOException;
 
-public abstract class TestConnectionSocket extends Thread {
+public abstract class Connection {
     public static final int MSG_SIZE_MAX = 2 * 1024 * 1024;
 
     // Used to signal new connections
@@ -22,6 +22,7 @@ public abstract class TestConnectionSocket extends Thread {
     public static final int DATA_VIDEO = 1;
     public static final int DATA_AUDIO = 2;
 
-    public abstract void shutdown();
+    public abstract void start();
+    public abstract void stop();
     public abstract void send(int type, byte[] data) throws InvalidMessage, IOException;
 }
