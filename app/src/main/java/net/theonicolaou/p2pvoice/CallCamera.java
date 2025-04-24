@@ -11,6 +11,7 @@ import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.SessionConfiguration;
 import android.util.Log;
+import android.view.Surface;
 import android.view.SurfaceHolder;
 
 import androidx.annotation.NonNull;
@@ -23,6 +24,7 @@ public class CallCamera {
     private final Context context;
     private String[] camera_list;
     private final SurfaceHolder preview_surface;
+    private final Surface encoder_surface;
     private final CameraManager camera_manager;
     private CameraDevice camera_current;
     private CameraCaptureSession camera_session;
@@ -42,8 +44,6 @@ public class CallCamera {
         @Override
         public void surfaceChanged(@NonNull SurfaceHolder surfaceHolder, int i, int i1, int i2) {
             Log.d(TAG, "Callback in: preview surface changed");
-//            surfaceDestroyed(surfaceHolder);
-//            surfaceCreated(surfaceHolder);
         }
 
         @Override
@@ -95,6 +95,7 @@ public class CallCamera {
             try {
                 capture_request = camera_current.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
                 capture_request.addTarget(preview_surface.getSurface());
+                capture_request.addTarget(encoder_surface);
                 camera_session.setRepeatingRequest(capture_request.build(), null, null);
             } catch (CameraAccessException e) {
                 Log.e(TAG, "Callback in (continued): Failed to set capture request: CameraAccessException: " + e.getMessage());
@@ -111,11 +112,12 @@ public class CallCamera {
         }
     };
 
-    CallCamera(Context context, SurfaceHolder preview_surface, int width, int height) throws CameraAccessException, SecurityException {
+    CallCamera(Context context, int width, int height, SurfaceHolder preview_surface, Surface encoder_surface) throws CameraAccessException, SecurityException {
         this.context = context;
         this.preview_surface = preview_surface;
         this.width = width;
         this.height = height;
+        this.encoder_surface = encoder_surface;
         preview_surface.addCallback(preview_surface_callback);
         camera_manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
 
@@ -149,6 +151,7 @@ public class CallCamera {
 
         ArrayList<OutputConfiguration> output_configs = new ArrayList<>();
         output_configs.add(new OutputConfiguration(preview_surface.getSurface()));
+        output_configs.add(new OutputConfiguration(encoder_surface));
         SessionConfiguration session_config = new SessionConfiguration(
                 SessionConfiguration.SESSION_REGULAR,
                 output_configs,

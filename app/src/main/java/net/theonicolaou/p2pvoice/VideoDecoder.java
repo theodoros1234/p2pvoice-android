@@ -78,14 +78,15 @@ public class VideoDecoder {
         this.queue_capacity = queue_capacity;
         MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
         format = MediaFormat.createVideoFormat(mime, width, height);
-        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar);
         codec = list.findDecoderForFormat(format);
         if (codec == null) {
             throw new UnsupportedFormat();
         }
+        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         format.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
         format.setInteger(MediaFormat.KEY_CAPTURE_RATE, fps);
         format.setInteger(MediaFormat.KEY_PUSH_BLANK_BUFFERS_ON_STOP, 1);
+        format.setInteger(MediaFormat.KEY_ROTATION, 270);
 
         thread = new HandlerThread(TAG);
         thread.start();
@@ -109,7 +110,6 @@ public class VideoDecoder {
 
     public void stop() {
         Log.d(TAG, "Stopping");
-        decoder.stop();
         thread.quit();
         thread.interrupt(); // Interrupts thread in case it's waiting on an empty queue
         try {
@@ -117,6 +117,7 @@ public class VideoDecoder {
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
+        decoder.stop();
         decoder.release();
     }
 

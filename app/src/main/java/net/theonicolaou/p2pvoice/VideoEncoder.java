@@ -8,12 +8,12 @@ import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Log;
+import android.view.Surface;
 
 import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.concurrent.ArrayBlockingQueue;
 
 public class VideoEncoder {
     public static class UnsupportedFormat extends Exception {}
@@ -24,21 +24,35 @@ public class VideoEncoder {
     }
 
     private static final String TAG = "VideoEncoder";
+    private static final MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
 
     MediaCodec encoder;
     private HandlerThread thread;
     private Handler handler;
     private MediaFormat format;
     private String codec;
-    private int width, height, fps, queue_capacity;
+    private int width, height, fps;
     private long timestamp = 0, timestamp_interval;
-    private ArrayBlockingQueue<byte[]> queue_input;
     private Callback upstream_callback;
     private Handler upstream_handler;
 
     private MediaCodec.Callback encoder_callback = new MediaCodec.Callback() {
         @Override
         public void onInputBufferAvailable(@NonNull MediaCodec encoder, int i) {
+            /* Code used as a workaround for old devices, not needed. Keeping just in case.
+            if (image_reader == null)
+                return;
+
+            ByteBuffer encoder_buffer = encoder.getInputBuffer(i);
+            Image.Plane[] image_planes = image_reader.acquireNextImage().getPlanes();
+            ByteBuffer planeY = image_planes[0].getBuffer();
+            ByteBuffer planeU = image_planes[1].getBuffer();
+            ByteBuffer planeV = image_planes[2].getBuffer();
+            encoder_buffer.put(planeY);
+            encoder.queueInputBuffer(i, 0, planeY.capacity(), timestamp, 0);
+            timestamp += timestamp_interval;
+
+            /*
             // Warning: holding onto this buffer may stall the decoder
             byte[] frame;
             // Grab frame from queue
@@ -53,7 +67,7 @@ public class VideoEncoder {
             ByteBuffer buffer = encoder.getInputBuffer(i);
             buffer.put(frame);
             encoder.queueInputBuffer(i, 0, frame.length, timestamp, 0);
-            timestamp += timestamp_interval;
+            timestamp += timestamp_interval;*/
         }
 
         @Override
@@ -82,18 +96,36 @@ public class VideoEncoder {
         }
     };
 
-    VideoEncoder(String mime, int width, int height, int fps, int bitrate, int queue_capacity, Callback callback, Looper callback_looper) throws UnsupportedFormat, EncoderFailed {
-        Log.d(TAG, "Initialized with mime=" + mime + " width=" + width + " height=" + height + " fps=" + fps + " bitrate=" + bitrate + " queue_capacity=" + queue_capacity);
+    public static boolean checkInputSurfaceCompatibility(String mime, int width, int height) {
+        MediaFormat format = MediaFormat.createVideoFormat(mime, width, height);
+        String codec = list.findEncoderForFormat(format);
+        MediaCodecInfo codec_info = null;
+        for (MediaCodecInfo i : list.getCodecInfos()) {
+            if (i.getName().equals(codec)) {
+                codec_info = i;
+                break;
+            }
+        }
+        if (codec_info == null)
+            throw new RuntimeException("Failed to check input surface compatibility");
+
+        for (int color_format : codec_info.getCapabilitiesForType(mime).colorFormats)
+            if (color_format == MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface)
+                return true;
+
+        return false;
+    }
+
+    VideoEncoder(String mime, int width, int height, int fps, int bitrate, @NonNull Surface input_surface, @NonNull Callback callback, @NonNull Looper callback_looper) throws UnsupportedFormat, EncoderFailed {
+        Log.d(TAG, "Initialized with mime=" + mime + " width=" + width + " height=" + height + " fps=" + fps + " bitrate=" + bitrate + " input from surface");
         this.width = width;
         this.height = height;
         this.fps = fps;
         this.timestamp_interval = 1000000/fps; // microseconds
-        this.queue_capacity = queue_capacity;
         this.upstream_callback = callback;
         this.upstream_handler = new Handler(callback_looper);
-        MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
         format = MediaFormat.createVideoFormat(mime, width, height);
-        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatYUV420SemiPlanar);
+        format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         codec = list.findEncoderForFormat(format);
         if (codec == null) {
             throw new UnsupportedFormat();
@@ -112,11 +144,10 @@ public class VideoEncoder {
             encoder = MediaCodec.createByCodecName(codec);
             encoder.setCallback(encoder_callback, handler);
             encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+            encoder.setInputSurface(input_surface);
         } catch (IOException e) {
             throw new EncoderFailed();
         }
-
-        queue_input = new ArrayBlockingQueue<>(queue_capacity);
     }
 
     public void start() {
@@ -135,10 +166,5 @@ public class VideoEncoder {
             throw new RuntimeException(e);
         }
         encoder.release();
-    }
-
-    public void pushFrame(byte[] frame) {
-        // NOTE: Frame will be dropped if input queue is full
-        queue_input.offer(frame);
     }
 }
