@@ -26,11 +26,13 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import java.io.IOException;
+
 public class TestConnectionConnect extends AppCompatActivity {
     private static final String TAG = "TestConnectionConnect";
 
     private static final int port = 8798;
-    private static final int bitrate_video = 4000000;
+    private static final int bitrate_video = 2000000;
     private static final int bitrate_audio = 192000;
     private static final String video_format = "video/avc";
     private static final int camera_width = 1280, camera_height = 720, camera_fps = 30;
@@ -39,19 +41,53 @@ public class TestConnectionConnect extends AppCompatActivity {
     private String host_address;
     private Boolean is_server;
     private SurfaceView preview_remote, preview_local;
-    private boolean started = false;
+    private boolean started = false, socket_connected = false;
     private TestConnectionSocket socket;
     private VideoEncoder video_encoder;
     private VideoDecoder video_decoder;
     private CallCamera camera;
     private Surface encoder_surface = null;
 
-    private final TestConnectionSocket.StatusListener socket_status_listener = fd -> {
-        Log.d(TAG, "Connection ready, starting video.");
-        // Socket connected, start video transmission
+    private final TestConnectionSocket.StatusListener socket_status_listener = new TestConnectionSocket.StatusListener() {
+        @Override
+        public void onConnect() {
+            Log.d(TAG, "Connected, starting video.");
+            socket_connected = true;
+            // Socket connected, start video transmission
+//            if (video_encoder != null)
+//                video_encoder.start();
+//            if (video_decoder != null)
+//                video_decoder.start();
+        }
+
+        @Override
+        public void onDisconnect() {
+            Log.d(TAG, "Disconnected, stopping video.");
+            socket_connected = false;
+            // Socket disconnected, stop video transmission
+//            if (video_encoder != null)
+//                video_encoder.stop();
+//            if (video_decoder != null)
+//                video_decoder.stop();
+        }
+
+        @Override
+        public void onError(IOException e) {
+
+        }
+
+        @Override
+        public void onReceive(int type, byte[] data) {
+            switch (type) {
+                case TestConnectionSocket.DATA_VIDEO:
+                    if (video_decoder != null)
+                        video_decoder.pushFrame(data);
+                    break;
+            }
+        }
     };
 
-    private ActivityResultLauncher<String> permission_launcher =
+    private final ActivityResultLauncher<String> permission_launcher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
         if (granted) {
             // Start connection
@@ -61,9 +97,14 @@ public class TestConnectionConnect extends AppCompatActivity {
         }
     });
 
-    private VideoEncoder.Callback video_encoder_callback = (frame) -> {
-        if (video_decoder != null)
-            video_decoder.pushFrame(frame);
+    private final VideoEncoder.Callback video_encoder_callback = (frame) -> {
+        if (socket != null) {
+            try {
+                socket.send(TestConnectionSocket.DATA_VIDEO, frame);
+            } catch (IOException e) {
+                Log.w(TAG, "Failed to pass frame from encoder to network");
+            }
+        }
     };
 
     @Override
@@ -95,13 +136,19 @@ public class TestConnectionConnect extends AppCompatActivity {
         if (host_address == null)
             finish();
 
+        // Init network socket handler
+        if (is_server)
+            socket = new TestConnectionSocketServer(this, socket_status_listener, host_address, port);
+        else
+            socket = new TestConnectionSocketClient(this, socket_status_listener, host_address, port);
+
         // Prepare encoder's input
         if (VideoEncoder.checkInputSurfaceCompatibility(video_format, camera_width, camera_height)) {
             Log.d(TAG, "Encoder supports input surfaces");
             encoder_surface = MediaCodec.createPersistentInputSurface();
         } else {
             Log.d(TAG, "Encoder doesn't support input surfaces. This could work using a workaround, but it isn't implemented currently.");
-            Toast.makeText(this, R.string.test_call_media_error, Toast.LENGTH_SHORT);
+            Toast.makeText(this, R.string.test_call_media_error, Toast.LENGTH_SHORT).show();
         }
 
         // Initialize camera
@@ -171,11 +218,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         started = true;
 
         // Start network connection
-//        if (is_server)
-//            socket = new TestConnectionSocketServer(this, socket_status_listener, host_address, port);
-//        else
-//            socket = new TestConnectionSocketClient(this, socket_status_listener, host_address, port);
-//        socket.start();
+        socket.start();
         // Video encoding/decoding will be started later when connection is active
 
         try {
@@ -190,6 +233,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         }
 
         preview_remote.getHolder().setFixedSize(camera_width, camera_height);
+        // TODO: this probably adds the callback multiple times and could cause crashes or problems
         preview_remote.getHolder().addCallback(new SurfaceHolder.Callback() {
             @Override
             public void surfaceCreated(@NonNull SurfaceHolder surfaceHolder) {
@@ -242,11 +286,10 @@ public class TestConnectionConnect extends AppCompatActivity {
         }
 
         // Stop network
-//        socket.shutdown();
-//        try {
-//            socket.join();
-//        } catch (InterruptedException ignored) {}
-//        socket = null;
+        socket.shutdown();
+        try {
+            socket.join();
+        } catch (InterruptedException ignored) {}
 
         started = false;
     }
