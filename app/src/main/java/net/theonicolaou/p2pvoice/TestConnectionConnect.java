@@ -76,7 +76,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         }
 
         @Override
-        public void onError(IOException e) {
+        public void onError(Exception e) {
 
         }
 

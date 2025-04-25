@@ -103,7 +103,12 @@ public class ConnectionClient extends Connection {
                         size = param_parser.getInt();
                         // TODO: Check for invalid type
 
-                        if (size > MSG_SIZE_MAX) {
+                        if (size < 0) {
+                            // Terminate connection on negative size message
+                            Log.e(TAG, "Terminating connection due to negative size message (" + size + ")");
+                            main_thread.post(() -> listener.onError(new InvalidMessage()));
+                            break;
+                        } else if (size > MSG_SIZE_MAX) {
                             // Ignore oversized messages
                             // TODO: Throw exception when there are too many consecutive oversized messages
                             Log.w(TAG, "Skipping oversized message (" + (size / 1024) + " KB)");

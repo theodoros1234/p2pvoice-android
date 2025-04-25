@@ -9,7 +9,7 @@ public abstract class Connection {
     public interface StatusListener {
         void onConnect();
         void onDisconnect();
-        void onError(IOException e);
+        void onError(Exception e);
         void onReceive(int type, byte[] data);
     }
 
