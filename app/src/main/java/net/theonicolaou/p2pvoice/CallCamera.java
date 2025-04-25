@@ -29,7 +29,7 @@ public class CallCamera {
     private CameraDevice camera_current;
     private CameraCaptureSession camera_session;
 
-    private boolean surface_ready = false, camera_ready = false;
+    private boolean surface_ready = false, camera_ready = false, encoder_ready = false;
     private boolean started = false, start_requested = false, stop_requested = false;
     private int width, height;
 
@@ -38,7 +38,7 @@ public class CallCamera {
         public void surfaceCreated(@NonNull SurfaceHolder surfaceHolder) {
             Log.d(TAG, "Callback in: preview surface created");
             surface_ready = true;
-            start_if_ready();
+            startIfReady();
         }
 
         @Override
@@ -50,7 +50,7 @@ public class CallCamera {
         public void surfaceDestroyed(@NonNull SurfaceHolder surfaceHolder) {
             Log.d(TAG, "Callback in: preview surface destroyed");
             surface_ready = false;
-            stop_if_unready();
+            stopIfUnready();
         }
     };
 
@@ -60,7 +60,7 @@ public class CallCamera {
             Log.d(TAG, "Callback in: camera device opened");
             camera_ready = true;
             camera_current = cameraDevice;
-            start_if_ready();
+            startIfReady();
         }
 
         @Override
@@ -68,7 +68,7 @@ public class CallCamera {
             Log.d(TAG, "Callback in: camera device disconnected");
             camera_ready = false;
             camera_current = null;  // Crashes otherwise
-            stop_if_unready();
+            stopIfUnready();
         }
 
         @Override
@@ -76,7 +76,7 @@ public class CallCamera {
             Log.e(TAG, "Callback in: camera device error");
             camera_ready = false;
             camera_current = null;  // Crashes otherwise
-            stop_if_unready();
+            stopIfUnready();
         }
     };
 
@@ -91,24 +91,14 @@ public class CallCamera {
             camera_session = cameraCaptureSession;
 
             // Start preview capture requests
-            CaptureRequest.Builder capture_request;
-            try {
-                capture_request = camera_current.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
-                capture_request.addTarget(preview_surface.getSurface());
-                capture_request.addTarget(encoder_surface);
-                camera_session.setRepeatingRequest(capture_request.build(), null, null);
-            } catch (CameraAccessException e) {
-                Log.e(TAG, "Callback in (continued): Failed to set capture request: CameraAccessException: " + e.getMessage());
-                camera_ready = false;
-                stop_if_unready();
-            }
+            setCaptureRequest();
         }
 
         @Override
         public void onConfigureFailed(@NonNull CameraCaptureSession cameraCaptureSession) {
             Log.e(TAG, "Callback in: Failed to configure camera capture session");
             camera_ready = false;
-            stop_if_unready();
+            stopIfUnready();
         }
     };
 
@@ -118,7 +108,6 @@ public class CallCamera {
         this.width = width;
         this.height = height;
         this.encoder_surface = encoder_surface;
-        preview_surface.addCallback(preview_surface_callback);
         camera_manager = (CameraManager) context.getSystemService(Context.CAMERA_SERVICE);
 
         // Find primary front and back cameras
@@ -140,9 +129,11 @@ public class CallCamera {
         // TODO: Exception if no cameras were found
         preview_surface.setFixedSize(width, height);
         camera_manager.openCamera(camera_list[0], camera_device_callback, null);
+        preview_surface.addCallback(preview_surface_callback);
+        surface_ready = (preview_surface.getSurface() != null) && preview_surface.getSurface().isValid();
     }
 
-    private void start_if_ready() {
+    private void startIfReady() {
         if (started || !start_requested || !surface_ready || !camera_ready)
             return;
 
@@ -168,7 +159,7 @@ public class CallCamera {
         }
     }
 
-    private void stop_if_unready() {
+    private void stopIfUnready() {
         if (!started || (!stop_requested && surface_ready && camera_ready))
             return;
 
@@ -189,14 +180,41 @@ public class CallCamera {
     public void start() {
         Log.d(TAG, "Start requested");
         start_requested = true;
-        start_if_ready();
+        startIfReady();
     }
 
     public void stop() {
         Log.d(TAG, "Stop requested");
         stop_requested = true;
         start_requested = false;
-        stop_if_unready();
+        stopIfUnready();
+    }
+
+    private void setCaptureRequest() {
+        if (camera_session != null) {
+            CaptureRequest.Builder capture_request;
+            try {
+                capture_request = camera_current.createCaptureRequest(CameraDevice.TEMPLATE_RECORD);
+                capture_request.addTarget(preview_surface.getSurface());
+                if (encoder_ready)
+                    capture_request.addTarget(encoder_surface);
+                camera_session.setRepeatingRequest(capture_request.build(), null, null);
+            } catch (CameraAccessException e) {
+                Log.e(TAG, "Failed to set capture request: CameraAccessException: " + e.getMessage());
+                camera_ready = false;
+                stopIfUnready();
+            }
+        }
+    }
+
+    public void encoderReady() {
+        encoder_ready = true;
+        setCaptureRequest();
+    }
+
+    public void encoderUnready() {
+        encoder_ready = false;
+        setCaptureRequest();
     }
 
     public void close() {
@@ -206,5 +224,6 @@ public class CallCamera {
         if (camera_current != null)
             camera_current.close();
         camera_current = null;
+        preview_surface.removeCallback(preview_surface_callback);
     }
 }

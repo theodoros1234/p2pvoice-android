@@ -16,6 +16,7 @@ import java.nio.ByteOrder;
 public class ConnectionClient extends Connection {
     private static final String TAG = "ConnectionClient";
     private static final int connection_timeout = 5000;
+    private static final int reconnection_delay = 1000;
 
     private final InetSocketAddress address;
     private boolean signal_shutdown = false;
@@ -59,10 +60,29 @@ public class ConnectionClient extends Connection {
                     }
                 } catch (SocketTimeoutException e) {
                     Log.w(TAG, "Connection to " + address + " timed out.");
+                    main_thread.post(() -> listener.onError(e));
+                    synchronized (this) {
+                        // Check if shutting down and pause before reconnecting
+                        if (!this.signal_shutdown) {
+                            try {
+                                wait(reconnection_delay);
+                            } catch (InterruptedException ignored) {}
+                        }
+                        signal_shutdown = this.signal_shutdown;
+                    }
                     continue;
                 } catch (IOException e) {
                     Log.w(TAG, "Connection to " + address + " failed: " + e.getMessage());
                     main_thread.post(() -> listener.onError(e));
+                    synchronized (this) {
+                        // Check if shutting down and pause before reconnecting
+                        if (!this.signal_shutdown) {
+                            try {
+                                wait(reconnection_delay);
+                            } catch (InterruptedException ignored) {}
+                        }
+                        signal_shutdown = this.signal_shutdown;
+                    }
                     continue;
                 }
 
@@ -133,9 +153,13 @@ public class ConnectionClient extends Connection {
                     } catch (IOException ignored) {}
                     this.socket = null;
 
-                    // Check if shutting down
+                    // Check if shutting down and pause before reconnecting
+                    if (!this.signal_shutdown) {
+                        try {
+                            wait(reconnection_delay);
+                        } catch (InterruptedException ignored) {}
+                    }
                     signal_shutdown = this.signal_shutdown;
-                    // TODO: Reconnect delay
                 }
             }
             Log.d(TAG, "Stopped socket thread.");
@@ -154,6 +178,7 @@ public class ConnectionClient extends Connection {
                 } catch (IOException ignored) {}
             }
             signal_shutdown = true;
+            notify();   // Interrupts reconnection delay
             Log.d(TAG, "Shutdown signal sent");
         }
         try {

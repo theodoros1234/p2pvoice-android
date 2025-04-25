@@ -81,10 +81,17 @@ public class ConnectionServer extends Connection {
                     }
                 } catch (SocketTimeoutException e) {
                     Log.w(TAG, "Connection from " + address + " timed out.");
+                    main_thread.post(() -> listener.onError(e));
+                    synchronized (this) {
+                        signal_shutdown = this.signal_shutdown;
+                    }
                     continue;
                 } catch (IOException e) {
                     Log.w(TAG, "Connection from " + address + " failed: " + e.getMessage());
                     main_thread.post(() -> listener.onError(e));
+                    synchronized (this) {
+                        signal_shutdown = this.signal_shutdown;
+                    }
                     continue;
                 }
 
@@ -157,7 +164,6 @@ public class ConnectionServer extends Connection {
 
                     // Check if shutting down
                     signal_shutdown = this.signal_shutdown;
-                    // TODO: Reconnect delay
                 }
             }
 

@@ -10,7 +10,6 @@ import android.media.MediaCodecList;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
-import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.widget.Button;
 import android.widget.TextView;
@@ -18,7 +17,6 @@ import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
@@ -54,10 +52,13 @@ public class TestConnectionConnect extends AppCompatActivity {
             Log.d(TAG, "Connected, starting video.");
             socket_connected = true;
             // Socket connected, start video transmission
-            if (video_encoder != null)
+            if (video_encoder != null) {
                 video_encoder.start();
-//            if (video_decoder != null)
-//                video_decoder.start();
+                if (camera != null)
+                    camera.encoderReady();
+            }
+            if (video_decoder != null)
+                video_decoder.start();
         }
 
         @Override
@@ -65,10 +66,13 @@ public class TestConnectionConnect extends AppCompatActivity {
             Log.d(TAG, "Disconnected, stopping video.");
             socket_connected = false;
             // Socket disconnected, stop video transmission
-            if (video_encoder != null)
+            if (video_encoder != null) {
                 video_encoder.stop();
-//            if (video_decoder != null)
-//                video_decoder.stop();
+                if (camera != null)
+                    camera.encoderUnready();
+            }
+            if (video_decoder != null)
+                video_decoder.stop();
         }
 
         @Override
@@ -151,21 +155,32 @@ public class TestConnectionConnect extends AppCompatActivity {
             Toast.makeText(this, R.string.test_call_media_error, Toast.LENGTH_SHORT).show();
         }
 
-        // Initialize camera
         if (encoder_surface != null) {
+            // Initialize camera
             try {
                 camera = new CallCamera(this, camera_width, camera_height, preview_local.getHolder(), encoder_surface);
             } catch (CameraAccessException e) {
                 Log.e(TAG, "Failed to initialize camera handler: CameraAccessException " + e.getMessage());
                 Toast.makeText(this, R.string.camera_failed, Toast.LENGTH_SHORT).show();
             }
+
+            // Initialize video encoder
             try {
-                video_encoder = new VideoEncoder(video_format, camera_width, camera_height, camera_fps, bitrate_video, encoder_surface, video_encoder_callback, getMainLooper());
+                video_encoder = new VideoEncoder(video_format, camera_width, camera_height, camera_fps, bitrate_video, encoder_surface, video_encoder_callback);
             } catch (VideoEncoder.UnsupportedFormat e) {
                 Toast.makeText(this, R.string.test_call_video_encode_unsupported, Toast.LENGTH_SHORT).show();
             } catch (VideoEncoder.EncoderFailed e) {
                 Toast.makeText(this, R.string.test_call_video_encode_failed, Toast.LENGTH_SHORT).show();
             }
+        }
+
+        // Initialize video decoder
+        try {
+            video_decoder = new VideoDecoder(video_format, camera_width, camera_height, camera_fps, 15, preview_remote.getHolder());
+        } catch (VideoDecoder.DecoderFailed e) {
+            Toast.makeText(this, R.string.test_call_video_decode_failed, Toast.LENGTH_SHORT).show();
+        } catch (VideoDecoder.UnsupportedFormat e) {
+            Toast.makeText(this, R.string.test_call_video_decode_unsupported, Toast.LENGTH_SHORT).show();
         }
 
         // TEST
@@ -196,6 +211,8 @@ public class TestConnectionConnect extends AppCompatActivity {
             camera.close();
         if (video_encoder != null)
             video_encoder.release();
+        if (video_decoder != null)
+            video_decoder.release();
         if (encoder_surface != null)
             encoder_surface.release();
     }
@@ -230,38 +247,6 @@ public class TestConnectionConnect extends AppCompatActivity {
         socket.start();
         // Video encoding/decoding will be started later when connection is active
 
-        preview_remote.getHolder().setFixedSize(camera_width, camera_height);
-        // TODO: this probably adds the callback multiple times and could cause crashes or problems
-        preview_remote.getHolder().addCallback(new SurfaceHolder.Callback() {
-            @Override
-            public void surfaceCreated(@NonNull SurfaceHolder surfaceHolder) {
-                if (video_decoder == null) {
-                    try {
-                        video_decoder = new VideoDecoder(video_format, camera_width, camera_height, camera_fps, 15, preview_remote.getHolder().getSurface());
-                        video_decoder.start();
-                    } catch (VideoDecoder.UnsupportedFormat e) {
-                        Toast.makeText(TestConnectionConnect.this, R.string.test_call_video_decode_unsupported, Toast.LENGTH_SHORT).show();
-                    } catch (VideoDecoder.DecoderFailed e) {
-                        Toast.makeText(TestConnectionConnect.this, R.string.test_call_video_decode_failed, Toast.LENGTH_SHORT).show();
-                    }
-                }
-            }
-
-            @Override
-            public void surfaceChanged(@NonNull SurfaceHolder surfaceHolder, int i, int i1, int i2) {
-                surfaceDestroyed(surfaceHolder);
-                surfaceCreated(surfaceHolder);
-            }
-
-            @Override
-            public void surfaceDestroyed(@NonNull SurfaceHolder surfaceHolder) {
-                if (video_decoder != null) {
-                    video_decoder.stop();
-                    video_decoder = null;
-                }
-            }
-        });
-
         if (camera != null)
             camera.start();
     }
@@ -272,14 +257,9 @@ public class TestConnectionConnect extends AppCompatActivity {
         if (camera != null)
             camera.stop();
 
-        // Not needed cause it's stopped by the surface callbacks and this causes a crash
-//        if (video_decoder != null) {
-//            video_decoder.stop();
-//            video_decoder = null;
-//        }
-
         // Stop network
         socket.stop();
+        // Video encoding/decoding will be stopped by the network callback
 
         started = false;
     }
