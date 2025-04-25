@@ -271,6 +271,8 @@ public class TestConnection extends AppCompatActivity {
         registerReceiver(wifi_direct_receiver, intent_filter);
         if (scanning)
             startWifiDirectScan();
+        // TODO: DEBUG, REMOVE THIS
+        wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
     }
 
     @Override
