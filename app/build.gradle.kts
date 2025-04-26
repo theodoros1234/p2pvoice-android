@@ -32,6 +32,11 @@ android {
 }
 
 dependencies {
+    // OPUS library
+    api(fileTree(mapOf("dir" to "libs", "include" to listOf("*.jar"))))
+    api(files("libs/opus.aar"))
+
+    // Regular dependencies
     implementation(libs.appcompat)
     implementation(libs.material)
     implementation(libs.androidx.activity)
