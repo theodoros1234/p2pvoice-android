@@ -196,7 +196,6 @@ public class VideoDecoder {
     }
 
     public void pushFrame(byte[] frame) {
-        // NOTE: Frame will be dropped if input queue is full
         try {
             queue_input.put(frame);
         } catch (InterruptedException ignored) {}

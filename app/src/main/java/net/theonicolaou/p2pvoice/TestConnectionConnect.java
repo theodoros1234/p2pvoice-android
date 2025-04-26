@@ -7,6 +7,7 @@ import android.hardware.camera2.CameraAccessException;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
+import android.media.MediaFormat;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
@@ -31,8 +32,9 @@ public class TestConnectionConnect extends AppCompatActivity {
 
     private static final int port = 8798;
     private static final int bitrate_video = 2000000;
-    private static final int bitrate_audio = 192000;
-    private static final String video_format = "video/avc";
+    private static final int bitrate_audio = 128000;
+    private static final String video_format = MediaFormat.MIMETYPE_VIDEO_AVC;
+    private static final String audio_format = MediaFormat.MIMETYPE_AUDIO_AAC;
     private static final int camera_width = 1280, camera_height = 720, camera_fps = 30;
 
     private TextView info;
@@ -43,6 +45,8 @@ public class TestConnectionConnect extends AppCompatActivity {
     private Connection socket;
     private VideoEncoder video_encoder;
     private VideoDecoder video_decoder;
+    private AudioEncoder audio_encoder;
+    private AudioDecoder audio_decoder;
     private CallCamera camera;
     private Surface encoder_surface = null;
 
@@ -59,6 +63,10 @@ public class TestConnectionConnect extends AppCompatActivity {
             }
             if (video_decoder != null)
                 video_decoder.start();
+            if (audio_encoder != null)
+                audio_encoder.start();
+            if (audio_decoder != null)
+                audio_decoder.start();
         }
 
         @Override
@@ -73,6 +81,10 @@ public class TestConnectionConnect extends AppCompatActivity {
             }
             if (video_decoder != null)
                 video_decoder.stop();
+            if (audio_encoder != null)
+                audio_encoder.stop();
+            if (audio_decoder != null)
+                audio_decoder.stop();
         }
 
         @Override
@@ -86,6 +98,11 @@ public class TestConnectionConnect extends AppCompatActivity {
                 case Connection.DATA_VIDEO:
                     if (video_decoder != null)
                         video_decoder.pushFrame(data);
+                    break;
+
+                case Connection.DATA_AUDIO:
+                    if (audio_decoder != null)
+                        audio_decoder.pushFrame(data);
                     break;
             }
         }
@@ -106,7 +123,17 @@ public class TestConnectionConnect extends AppCompatActivity {
             try {
                 socket.send(Connection.DATA_VIDEO, frame);
             } catch (IOException e) {
-                Log.w(TAG, "Failed to pass frame from encoder to network");
+                Log.w(TAG, "Failed to pass video frame from encoder to network");
+            }
+        }
+    };
+
+    private final AudioEncoder.Callback audio_encoder_callback = (frame) -> {
+        if (socket != null) {
+            try {
+                socket.send(Connection.DATA_AUDIO, frame);
+            } catch (IOException e) {
+                Log.w(TAG, "Failed to pass audio frame from encoder to network");
             }
         }
     };
@@ -183,6 +210,19 @@ public class TestConnectionConnect extends AppCompatActivity {
             Toast.makeText(this, R.string.test_call_video_decode_unsupported, Toast.LENGTH_SHORT).show();
         }
 
+        // Audio encoder will be initialized later after getting mic permissions
+
+        // Initialize audio decoder
+        try {
+            audio_decoder = new AudioDecoder(audio_format);
+        } catch (AudioDecoder.DecoderFailed e) {
+            Toast.makeText(this, R.string.test_call_audio_decode_failed, Toast.LENGTH_SHORT).show();
+        } catch (AudioDecoder.UnsupportedFormat e) {
+            Toast.makeText(this, R.string.test_call_audio_decode_unsupported, Toast.LENGTH_SHORT).show();
+        } catch (AudioDecoder.PlaybackFailed e) {
+            Toast.makeText(this, R.string.test_call_audio_playback_failed, Toast.LENGTH_SHORT).show();
+        }
+
         // TEST
         MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
         MediaCodecInfo[] info = list.getCodecInfos();
@@ -215,6 +255,10 @@ public class TestConnectionConnect extends AppCompatActivity {
             video_decoder.release();
         if (encoder_surface != null)
             encoder_surface.release();
+        if (audio_encoder != null)
+            audio_encoder.release();
+        if (audio_decoder != null)
+            audio_decoder.release();
     }
 
     private boolean acquirePermission(String permission) {
@@ -239,6 +283,21 @@ public class TestConnectionConnect extends AppCompatActivity {
         if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
             Toast.makeText(this, R.string.test_call_camera_missing, Toast.LENGTH_SHORT).show();
             return;
+        }
+
+        // Initialize audio encoder with mic permissions
+        if (audio_encoder == null) {
+            try {
+                audio_encoder = new AudioEncoder(audio_format, bitrate_audio, audio_encoder_callback);
+            } catch (AudioEncoder.EncoderFailed e) {
+                Toast.makeText(this, R.string.test_call_audio_encode_failed, Toast.LENGTH_SHORT).show();
+            } catch (AudioEncoder.UnsupportedFormat e) {
+                Toast.makeText(this, R.string.test_call_audio_encode_unsupported, Toast.LENGTH_SHORT).show();
+            } catch (AudioEncoder.MicFailed e) {
+                Toast.makeText(this, R.string.test_call_audio_mic_failed, Toast.LENGTH_SHORT).show();
+            } catch (SecurityException e) {
+                Toast.makeText(this, R.string.test_call_permission_error, Toast.LENGTH_SHORT).show();
+            }
         }
 
         started = true;
