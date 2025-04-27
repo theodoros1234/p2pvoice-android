@@ -34,4 +34,6 @@
     <string name="audio_output_earpiece">Earpiece</string>
     <string name="audio_output_speakers">Speakers</string>
     <string name="audio_output_bluetooth">Bluetooth</string>
+    <string name="mute">Mute</string>
+    <string name="unmute">Unmute</string>
 </resources>

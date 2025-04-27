@@ -31,7 +31,7 @@ public class TestConnectionConnect extends AppCompatActivity {
 
     private static final int port = 8798;
     private static final int bitrate_video = 1000000;
-    private static final int bitrate_audio = 80000;
+    private static final int bitrate_audio = 50000;
     private static final String video_format = MediaFormat.MIMETYPE_VIDEO_AVC;
     private static final int camera_width = 1280, camera_height = 720, camera_fps = 30;
 
@@ -112,6 +112,16 @@ public class TestConnectionConnect extends AppCompatActivity {
         preview_local = findViewById(R.id.preview_local);
         preview_remote = findViewById(R.id.preview_remote);
 
+        button_mute.setOnClickListener(view -> {
+            if (audio_handler != null) {
+                boolean muted = audio_handler.toggleMute();
+                if (muted)
+                    button_mute.setText(R.string.unmute);
+                else
+                    button_mute.setText(R.string.mute);
+            }
+        });
+
         button_audio_output.setOnClickListener(view -> {
             if (audio_handler != null) {
                 int type = audio_handler.changeOutput();
@@ -184,7 +194,7 @@ public class TestConnectionConnect extends AppCompatActivity {
 
         // Initialize video decoder
         try {
-            video_decoder = new VideoDecoder(video_format, camera_width, camera_height, camera_fps, 15, preview_remote.getHolder());
+            video_decoder = new VideoDecoder(video_format, camera_width, camera_height, camera_fps, 30, preview_remote.getHolder());
             socket.setIncomingMessagePipe(Connection.DATA_VIDEO, video_decoder.getIncomingMessagePipe());
         } catch (VideoDecoder.DecoderFailed e) {
             Toast.makeText(this, R.string.test_call_video_decode_failed, Toast.LENGTH_SHORT).show();

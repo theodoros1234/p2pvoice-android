@@ -8,6 +8,7 @@ import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.AudioTrack;
 import android.media.MediaRecorder;
+import android.media.audiofx.AcousticEchoCanceler;
 import android.media.audiofx.AudioEffect;
 import android.media.audiofx.AutomaticGainControl;
 import android.media.audiofx.NoiseSuppressor;
@@ -28,9 +29,9 @@ public class AudioHandler {
 
     private static final String TAG = "AudioHandler";
     private static final int sample_rate = 48000;
-    private static final int buffer_size_wanted = sample_rate; // in bytes, 0.5s of audio data
-    private static final int frame_size = 1920;  // in bytes, 50ms
-    private static final int queue_size = 20;
+    private static final int buffer_size_wanted = sample_rate / 16; // in bytes, 31.3ms of audio data
+    private static final int frame_size = 960;  // in bytes, 10ms
+    private static final int queue_size = 50;
     private static final Constants.SampleRate opus_sample_rate = Constants.SampleRate.Companion._48000();
     private static final Constants.Channels opus_channels = Constants.Channels.Companion.mono();
     private static final Constants.Application opus_application = Constants.Application.Companion.voip();
@@ -41,7 +42,7 @@ public class AudioHandler {
     private final AudioManager audio_manager;
     private AudioRecord recorder;
     private AudioTrack player;
-    private final AudioEffect noise_suppressor, auto_gain;
+    private AudioEffect echo_cancellation, noise_suppressor, auto_gain;
     private final Opus opus = new Opus();
     private final AudioAttributes audio_attributes;
     private final AudioFormat audio_format;
@@ -50,13 +51,16 @@ public class AudioHandler {
     private Thread thread_encoder, thread_decoder;
     private final ConnectionMessagePipe pipe_in;
     private ConnectionMessagePipe pipe_out = null;
-    private boolean started_encoding = false, started_decoding, muted = false, released = false;
-    private volatile boolean thread_encoder_work;
+    private boolean started_encoding = false, started_decoding, released = false;
+    private volatile boolean thread_encoder_work, muted = false;
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
     AudioHandler(int bitrate, AudioManager audio_manager) throws MicFailed, PlaybackFailed {
         Log.d(TAG, "Creating for bitrate=" + bitrate);
         this.audio_manager = audio_manager;
+
+        if (audio_manager != null)
+            audio_manager.setMode(AudioManager.MODE_IN_COMMUNICATION);
 
         // Make sure buffer size is above the min acceptable
         buffer_size = Math.max(
@@ -98,7 +102,7 @@ public class AudioHandler {
                 audio_format,
                 buffer_size,
                 AudioTrack.MODE_STREAM,
-                AudioManager.AUDIO_SESSION_ID_GENERATE
+                recorder.getAudioSessionId()
         );
         if (player.getState() == AudioTrack.STATE_UNINITIALIZED)
             throw new PlaybackFailed();
@@ -107,7 +111,7 @@ public class AudioHandler {
 
         pipe_in = new ConnectionMessagePipe(queue_size, true);
 
-        // Get output devices
+        // Get output devices and set audio mode
         if (audio_manager != null) {
             AudioDeviceInfo[] devices = audio_manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
             for (AudioDeviceInfo device : devices) {
@@ -124,9 +128,19 @@ public class AudioHandler {
         if (!audio_outputs.isEmpty())
             player.setPreferredDevice(audio_outputs.get(0));
 
-        // Apply noise suppression and auto gain to mic
-        noise_suppressor = NoiseSuppressor.create(recorder.getAudioSessionId());
-        auto_gain = AutomaticGainControl.create(recorder.getAudioSessionId());
+        // Apply echo cancellation, noise suppression and auto gain to mic (if supported)
+        if (AcousticEchoCanceler.isAvailable())
+            echo_cancellation = AcousticEchoCanceler.create(recorder.getAudioSessionId());
+        if (NoiseSuppressor.isAvailable())
+            noise_suppressor = NoiseSuppressor.create(recorder.getAudioSessionId());
+        if (AutomaticGainControl.isAvailable())
+            auto_gain = AutomaticGainControl.create(recorder.getAudioSessionId());
+        if (echo_cancellation != null && !echo_cancellation.getEnabled())
+            echo_cancellation.setEnabled(true);
+        if (noise_suppressor != null && !noise_suppressor.getEnabled())
+            noise_suppressor.setEnabled(true);
+        if (auto_gain != null && !auto_gain.getEnabled())
+            auto_gain.setEnabled(true);
     }
 
     public int changeOutput() {
@@ -138,7 +152,14 @@ public class AudioHandler {
             audio_output_current = 0;
         AudioDeviceInfo current = audio_outputs.get(audio_output_current);
         player.setPreferredDevice(current);
+        if (audio_manager != null)
+            audio_manager.setSpeakerphoneOn(current.getType() == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER);
         return current.getType();
+    }
+
+    public boolean toggleMute() {
+        muted = !muted;
+        return muted;
     }
 
     public void startEncoder() {
@@ -154,12 +175,9 @@ public class AudioHandler {
 
         thread_encoder = new Thread(() -> {
             recorder.startRecording();
-            if (noise_suppressor != null)
-                noise_suppressor.setEnabled(true);
-            if (auto_gain != null)
-                auto_gain.setEnabled(true);
             ByteBuffer raw_audio_buffer = ByteBuffer.allocateDirect(frame_size);
             byte[] raw_audio_array = new byte[frame_size];
+            byte[] muted_array = new byte[frame_size];
             byte[] encoded_audio;
             while (thread_encoder_work) {
                 raw_audio_buffer.rewind();
@@ -169,8 +187,12 @@ public class AudioHandler {
                     Log.e(TAG, "AudioRecorder failed with code " + bytes_read);
                     break;
                 }
-                raw_audio_buffer.get(raw_audio_array, 0, bytes_read);
-                encoded_audio = opus.encode(raw_audio_array, opus_frame_size);
+                if (muted) {
+                    encoded_audio = opus.encode(muted_array, opus_frame_size);
+                } else {
+                    raw_audio_buffer.get(raw_audio_array, 0, bytes_read);
+                    encoded_audio = opus.encode(raw_audio_array, opus_frame_size);
+                }
                 if (pipe_out != null && encoded_audio != null)
                     pipe_out.send(Connection.DATA_AUDIO, encoded_audio);
             }
@@ -272,6 +294,14 @@ public class AudioHandler {
             stopDecoder();
         recorder.release();
         player.release();
+        if (audio_manager != null)
+            audio_manager.setMode(AudioManager.MODE_NORMAL);
+        if (echo_cancellation != null)
+            echo_cancellation.release();
+        if (noise_suppressor != null)
+            noise_suppressor.release();
+        if (auto_gain != null)
+            auto_gain.release();
         released = true;
     }
 
