@@ -12,6 +12,7 @@ import android.net.wifi.p2p.WifiP2pDeviceList;
 import android.net.wifi.p2p.WifiP2pManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.Menu;
 import android.view.MenuInflater;
 import android.view.MenuItem;
@@ -28,6 +29,7 @@ import android.widget.Toast;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
@@ -218,14 +220,15 @@ public class TestConnection extends AppCompatActivity {
     };
 
     private final WifiP2pManager.ConnectionInfoListener connection_listener = info -> {
-        if (!info.groupFormed)
+        Log.d("TestConnection", "connection_listener called, groupFormed=" + info.groupFormed);
+        if (!info.groupFormed || info.groupOwnerAddress == null)
             return;
 
         // Launch new activity for call connection
         Intent intent = new Intent(TestConnection.this, TestConnectionConnect.class);
         intent.putExtra(getPackageName() + ".HostAddress", info.groupOwnerAddress.getHostAddress());
         intent.putExtra(getPackageName() + ".IsServer", info.isGroupOwner);
-        startActivity(intent);
+        startActivityForResult(intent, 0);
     };
 
     private MenuItem permission_requester_pressed_item;
@@ -262,6 +265,8 @@ public class TestConnection extends AppCompatActivity {
 
         wifi_direct_manager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
         wifi_direct_channel = wifi_direct_manager.initialize(this, getMainLooper(), null);
+        // Reconnect to already connected device if there is one
+        wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
     }
 
     @Override
@@ -271,8 +276,6 @@ public class TestConnection extends AppCompatActivity {
         registerReceiver(wifi_direct_receiver, intent_filter);
         if (scanning)
             startWifiDirectScan();
-        // TODO: DEBUG, REMOVE THIS
-        wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
     }
 
     @Override
@@ -414,5 +417,37 @@ public class TestConnection extends AppCompatActivity {
 
         // All permissions are granted
         return true;
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        Log.d("TestConnection", "onActivityResult: will disconnect from Wi-Fi Direct");
+
+        // Disconnect from Wi-Fi Direct device when the call ends
+        // Also get the manager and channel again if the activity was unloaded/crashed since starting the call
+        if (wifi_direct_manager == null) {
+            Log.d("TestConnection", "onActivityResult: getting WifiP2pManager again");
+            wifi_direct_manager = (WifiP2pManager) getSystemService(Context.WIFI_P2P_SERVICE);
+        }
+        if (wifi_direct_channel == null) {
+            Log.d("TestConnection", "onActivityResult: getting channel again again");
+            wifi_direct_channel = wifi_direct_manager.initialize(this, getMainLooper(), null);
+        }
+
+        Log.d("TestConnection", "onActivityResult: removing group");
+        wifi_direct_manager.removeGroup(wifi_direct_channel, new WifiP2pManager.ActionListener() {
+            @Override
+            public void onSuccess() {
+                Log.d("TestConnection", "onActivityResult: group remove successful");
+            }
+
+            @Override
+            public void onFailure(int i) {
+                Log.d("TestConnection", "onActivityResult: group remove failed");
+                Toast.makeText(TestConnection.this, R.string.device_disconnect_failed, Toast.LENGTH_LONG).show();
+            }
+        });
+
     }
 }

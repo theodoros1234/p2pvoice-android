@@ -47,7 +47,7 @@
         <activity
             android:name=".TestConnectionConnect"
             android:exported="false"
-            android:label="Connect to device"
+            android:label="P2PVoice - Call"
             android:screenOrientation="portrait" />
         <activity
             android:name=".TestConnection"
