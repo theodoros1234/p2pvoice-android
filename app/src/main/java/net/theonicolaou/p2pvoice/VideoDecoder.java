@@ -34,6 +34,7 @@ public class VideoDecoder {
     private final MediaCodec.Callback decoder_callback = new MediaCodec.Callback() {
         @Override
         public void onInputBufferAvailable(@NonNull MediaCodec decoder, int i) {
+            Log.d(TAG, "onInputBufferAvailable called");
             // Ignore anything after an EOF
             if (eof_sent)
                 return;
@@ -57,7 +58,13 @@ public class VideoDecoder {
                 ByteBuffer buffer = decoder.getInputBuffer(i);
                 if (buffer != null) {
                     buffer.put(frame.data);
-                    decoder.queueInputBuffer(i, 0, frame.data.length, timestamp, 0);
+                    try {
+                        decoder.queueInputBuffer(i, 0, frame.data.length, timestamp, 0);
+                    } catch (IllegalStateException e) {
+                        Log.d(TAG, "onInputBufferAvailable: IllegalStateException: " + e.getMessage());
+                        eof_sent = true;
+                        thread.quit();
+                    }
                     timestamp += timestamp_interval;
                 }
             }
@@ -182,6 +189,7 @@ public class VideoDecoder {
     public void start() {
         Log.d(TAG, "Start requested");
         start_requested = true;
+        pipe_in.openReceiver();     // Needed to not miss initial frames from network
         startIfReady();
     }
 

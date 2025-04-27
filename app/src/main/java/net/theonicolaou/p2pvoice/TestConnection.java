@@ -47,7 +47,7 @@ public class TestConnection extends AppCompatActivity {
     private final List<WifiP2pDevice> peer_list = new ArrayList<>();
     private TextView peer_list_placeholder;
     private ProgressBar peer_list_loading;
-    boolean scanning = false;
+    boolean scanning = false, call_activity_running = false;
 
     private final BroadcastReceiver wifi_direct_receiver = new BroadcastReceiver() {
         @Override
@@ -221,13 +221,14 @@ public class TestConnection extends AppCompatActivity {
 
     private final WifiP2pManager.ConnectionInfoListener connection_listener = info -> {
         Log.d("TestConnection", "connection_listener called, groupFormed=" + info.groupFormed);
-        if (!info.groupFormed || info.groupOwnerAddress == null)
+        if (!info.groupFormed || info.groupOwnerAddress == null || call_activity_running)
             return;
 
         // Launch new activity for call connection
         Intent intent = new Intent(TestConnection.this, TestConnectionConnect.class);
         intent.putExtra(getPackageName() + ".HostAddress", info.groupOwnerAddress.getHostAddress());
         intent.putExtra(getPackageName() + ".IsServer", info.isGroupOwner);
+        call_activity_running = true;
         startActivityForResult(intent, 0);
     };
 
@@ -440,12 +441,14 @@ public class TestConnection extends AppCompatActivity {
             @Override
             public void onSuccess() {
                 Log.d("TestConnection", "onActivityResult: group remove successful");
+                call_activity_running = false;
             }
 
             @Override
             public void onFailure(int i) {
                 Log.d("TestConnection", "onActivityResult: group remove failed");
                 Toast.makeText(TestConnection.this, R.string.device_disconnect_failed, Toast.LENGTH_LONG).show();
+                call_activity_running = false;
             }
         });
 

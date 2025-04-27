@@ -43,7 +43,17 @@ public class ConnectionClient extends Connection {
     }
 
     private void threadIncoming() {
-        boolean signal_shutdown = false;
+        boolean signal_shutdown;
+        // Don't start immediately, so the activity gets the chance to fully load
+        synchronized (this) {
+            if (!this.signal_shutdown) {
+                try {
+                    wait(reconnection_delay);
+                } catch (InterruptedException ignored) {}
+            }
+            signal_shutdown = this.signal_shutdown;
+        }
+
         while (!signal_shutdown) {
             InputStream socket_reader;
             OutputStream socket_writer;
