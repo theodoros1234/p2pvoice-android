@@ -39,7 +39,7 @@ public class TestConnectionConnect extends AppCompatActivity {
     private String host_address;
     private Boolean is_server;
     private SurfaceView preview_remote, preview_local;
-    private Button button_mute, button_audio_output;
+    private Button button_mute, button_audio_output, button_camera_switch;
     private boolean started = false;
     private Connection socket;
     private VideoEncoder video_encoder;
@@ -109,6 +109,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         });
         button_mute = findViewById(R.id.button_mute);
         button_audio_output = findViewById(R.id.button_audio_output);
+        button_camera_switch = findViewById(R.id.button_camera_switch);
         preview_local = findViewById(R.id.preview_local);
         preview_remote = findViewById(R.id.preview_remote);
 
@@ -119,6 +120,16 @@ public class TestConnectionConnect extends AppCompatActivity {
                     button_mute.setText(R.string.unmute);
                 else
                     button_mute.setText(R.string.mute);
+            }
+        });
+
+        button_camera_switch.setOnClickListener(view -> {
+            if (camera != null) {
+                try {
+                    camera.nextCamera();
+                } catch (CameraAccessException e) {
+                    Toast.makeText(TestConnectionConnect.this, R.string.camera_failed, Toast.LENGTH_SHORT).show();
+                }
             }
         });
 

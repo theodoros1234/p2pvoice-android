@@ -22,7 +22,8 @@ public class CallCamera {
     private static final String TAG = "CallCamera";
 
     private final Context context;
-    private String[] camera_list;
+    private ArrayList<String> camera_list;
+    private int camera_index = 0;
     private final SurfaceHolder preview_surface;
     private final Surface encoder_surface;
     private final CameraManager camera_manager;
@@ -114,23 +115,46 @@ public class CallCamera {
         // TODO: Make it actually find the back camera
         String[] full_camera_list = camera_manager.getCameraIdList();
         boolean found_front = false, found_back = false;
+        camera_list = new ArrayList<>();
         for (String camera : full_camera_list) {
             CameraCharacteristics cr = camera_manager.getCameraCharacteristics(camera);
             int facing = cr.get(CameraCharacteristics.LENS_FACING);
             if (!found_front && facing == CameraCharacteristics.LENS_FACING_FRONT) {
+                camera_index = camera_list.size();  // Start from this camera
                 Log.d(TAG, "Found front camera id=" + camera);
-                camera_list = new String[]{camera};
+                camera_list.add(camera);
                 found_front = true;
+            } else if (!found_back && facing == CameraCharacteristics.LENS_FACING_BACK) {
+                Log.d(TAG, "Found back camera id=" + camera);
+                camera_list.add(camera);
+                found_back = true;
             }
 
-            if (found_front)
+            if (found_front && found_back)
                 break;
         }
-        // TODO: Exception if no cameras were found
+        if (camera_list.isEmpty())
+            throw new CameraAccessException(CameraAccessException.CAMERA_ERROR);
         preview_surface.setFixedSize(width, height);
-        camera_manager.openCamera(camera_list[0], camera_device_callback, null);
         preview_surface.addCallback(preview_surface_callback);
+        configureCamera();
         surface_ready = (preview_surface.getSurface() != null) && preview_surface.getSurface().isValid();
+    }
+
+    private void configureCamera() throws CameraAccessException, SecurityException {
+        camera_manager.openCamera(camera_list.get(camera_index), camera_device_callback, null);
+    }
+
+    public void nextCamera() throws CameraAccessException, SecurityException {
+        camera_ready = false;
+        stopIfUnready();
+        if (camera_current != null)
+            camera_current.close();
+        camera_current = null;
+        camera_index++;
+        if (camera_index >= camera_list.size())
+            camera_index = 0;
+        configureCamera();
     }
 
     private void startIfReady() {

@@ -7,44 +7,71 @@
     android:layout_height="match_parent"
     tools:context=".TestConnectionConnect">
 
-    <LinearLayout
+    <androidx.constraintlayout.widget.ConstraintLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_above="@+id/button_container"
+        android:layout_marginBottom="0dp"
+        android:background="@color/black">
+
+        <SurfaceView
+            android:id="@+id/preview_remote"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:keepScreenOn="true"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintDimensionRatio="9:16"
+            app:layout_constraintTop_toTopOf="parent" />
+
+        <SurfaceView
+            android:id="@+id/preview_local"
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:keepScreenOn="true"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintDimensionRatio="9:16"
+            app:layout_constraintHeight_percent="0.4"
+            app:layout_constraintStart_toStartOf="parent" />
+    </androidx.constraintlayout.widget.ConstraintLayout>
+
+    <GridLayout
         android:id="@+id/button_container"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
-        android:orientation="horizontal">
+        android:layout_centerHorizontal="true"
+        android:alignmentMode="alignBounds"
+        android:columnCount="2"
+        android:orientation="horizontal"
+        android:rowCount="2">
 
         <Button
             android:id="@+id/button_mute"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/mute" />
+            android:layout_rowWeight="1"
+            android:layout_columnWeight="1"
+            android:text="@string/mute"
+            android:textAlignment="center" />
 
         <Button
             android:id="@+id/button_audio_output"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/audio_output_earpiece" />
-    </LinearLayout>
+            android:layout_rowWeight="1"
+            android:layout_columnWeight="1"
+            android:text="@string/audio_output_earpiece"
+            android:textAlignment="center" />
 
-    <SurfaceView
-        android:id="@+id/preview_remote"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_above="@+id/button_container"
-        android:layout_alignParentTop="true"
-        android:layout_marginTop="0dp"
-        android:layout_marginBottom="0dp"
-        android:keepScreenOn="true" />
+        <Button
+            android:id="@+id/button_camera_switch"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_rowWeight="1"
+            android:layout_columnSpan="2"
+            android:layout_columnWeight="1"
+            android:text="@string/switch_camera"
+            android:textAlignment="center" />
+    </GridLayout>
 
-    <SurfaceView
-        android:id="@+id/preview_local"
-        android:layout_width="144dp"
-        android:layout_height="256dp"
-        android:layout_above="@+id/button_container"
-        android:layout_alignParentLeft="true"
-        android:layout_marginBottom="0dp"
-        android:keepScreenOn="true" />
 </RelativeLayout>
