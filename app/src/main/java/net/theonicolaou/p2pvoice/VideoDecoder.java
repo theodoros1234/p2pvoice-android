@@ -14,7 +14,6 @@ import androidx.annotation.NonNull;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
-import java.util.concurrent.ArrayBlockingQueue;
 
 public class VideoDecoder {
     public static class UnsupportedFormat extends Exception {}
@@ -28,7 +27,7 @@ public class VideoDecoder {
     private final SurfaceHolder output_surface;
     private long timestamp = 0;
     private final long timestamp_interval;
-    private final ArrayBlockingQueue<byte[]> queue_input;
+    private final ConnectionMessagePipe pipe_in;
     private boolean start_requested = false;
     private boolean started = false, surface_ready, eof_sent = false;
 
@@ -40,25 +39,25 @@ public class VideoDecoder {
                 return;
 
             // Warning: holding onto this buffer may stall the decoder
-            byte[] frame;
+            ConnectionMessage frame;
             // Grab frame from queue
-            try {
-                frame = queue_input.take();
-            } catch (InterruptedException e) {
-                // Stopping
-                return;
-            }
+            frame = pipe_in.receive();
 
-            if (frame.length == 0) {
+            if (frame == null) {
                 // EOS, stopping
                 eof_sent = true;
                 decoder.queueInputBuffer(i, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
             } else {
+                if (frame.type != Connection.DATA_VIDEO) {
+                    Log.e(TAG, "Received frame of wrong message type " + frame.type);
+                    decoder.queueInputBuffer(i, 0, 0, 0, 0);
+                    return;
+                }
                 // Put it into the decoder's buffer
                 ByteBuffer buffer = decoder.getInputBuffer(i);
                 if (buffer != null) {
-                    buffer.put(frame);
-                    decoder.queueInputBuffer(i, 0, frame.length, timestamp, 0);
+                    buffer.put(frame.data);
+                    decoder.queueInputBuffer(i, 0, frame.data.length, timestamp, 0);
                     timestamp += timestamp_interval;
                 }
             }
@@ -137,7 +136,7 @@ public class VideoDecoder {
         Surface surface_check = output_surface.getSurface();
         output_surface.addCallback(surface_callback);
         surface_ready = (surface_check != null) && surface_check.isValid();
-        queue_input = new ArrayBlockingQueue<>(queue_capacity);
+        pipe_in = new ConnectionMessagePipe(queue_capacity, true);
     }
 
     private void startIfReady() {
@@ -145,7 +144,7 @@ public class VideoDecoder {
             return;
 
         Log.i(TAG, "Starting");
-        queue_input.clear();
+        pipe_in.openReceiver();
         eof_sent = false;
         timestamp = 0;
         thread = new HandlerThread(TAG);
@@ -163,15 +162,14 @@ public class VideoDecoder {
             return;
 
         Log.i(TAG, "Stopping");
+        pipe_in.closeReceiver();  // Should send an EOS to the codec
         try {
-            queue_input.put(new byte[0]);  // Should send an EOS to the codec
             thread.join();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
         }
         decoder.stop();
         decoder.reset();
-        queue_input.clear();
 
         started = false;
         Log.i(TAG, "Stop sequence finished");
@@ -195,9 +193,7 @@ public class VideoDecoder {
         decoder.release();
     }
 
-    public void pushFrame(byte[] frame) {
-        try {
-            queue_input.put(frame);
-        } catch (InterruptedException ignored) {}
+    public ConnectionMessagePipe getIncomingMessagePipe() {
+        return pipe_in;
     }
 }

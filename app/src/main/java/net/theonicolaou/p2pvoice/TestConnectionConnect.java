@@ -31,7 +31,7 @@ public class TestConnectionConnect extends AppCompatActivity {
     private static final String TAG = "TestConnectionConnect";
 
     private static final int port = 8798;
-    private static final int bitrate_video = 2000000;
+    private static final int bitrate_video = 1000000;
     private static final int bitrate_audio = 50000;
     private static final String video_format = MediaFormat.MIMETYPE_VIDEO_AVC;
     private static final int camera_width = 1280, camera_height = 720, camera_fps = 30;
@@ -40,7 +40,7 @@ public class TestConnectionConnect extends AppCompatActivity {
     private String host_address;
     private Boolean is_server;
     private SurfaceView preview_remote, preview_local;
-    private boolean started = false, socket_connected = false;
+    private boolean started = false;
     private Connection socket;
     private VideoEncoder video_encoder;
     private VideoDecoder video_decoder;
@@ -52,7 +52,6 @@ public class TestConnectionConnect extends AppCompatActivity {
         @Override
         public void onConnect() {
             Log.d(TAG, "Connected, starting video.");
-            socket_connected = true;
             // Socket connected, start video transmission
             if (video_encoder != null) {
                 video_encoder.start();
@@ -70,7 +69,6 @@ public class TestConnectionConnect extends AppCompatActivity {
         @Override
         public void onDisconnect() {
             Log.d(TAG, "Disconnected, stopping video.");
-            socket_connected = false;
             // Socket disconnected, stop video transmission
             if (video_encoder != null) {
                 video_encoder.stop();
@@ -86,24 +84,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         }
 
         @Override
-        public void onError(Exception e) {
-
-        }
-
-        @Override
-        public void onReceive(int type, byte[] data) {
-            switch (type) {
-                case Connection.DATA_VIDEO:
-                    if (video_decoder != null)
-                        video_decoder.pushFrame(data);
-                    break;
-
-                case Connection.DATA_AUDIO:
-                    if (audio_handler != null)
-                        audio_handler.pushIncomingFrame(data);
-                    break;
-            }
-        }
+        public void onError(Exception e) {}
     };
 
     private final ActivityResultLauncher<String> permission_launcher =
@@ -115,26 +96,6 @@ public class TestConnectionConnect extends AppCompatActivity {
             Toast.makeText(this, R.string.test_call_permission_error, Toast.LENGTH_SHORT).show();
         }
     });
-
-    private final VideoEncoder.Callback video_encoder_callback = (frame) -> {
-        if (socket != null) {
-            try {
-                socket.send(Connection.DATA_VIDEO, frame);
-            } catch (IOException e) {
-                Log.w(TAG, "Failed to pass video frame from encoder to network");
-            }
-        }
-    };
-
-    private final AudioHandler.Callback audio_encoder_callback = (frame) -> {
-        if (socket != null) {
-            try {
-                socket.send(Connection.DATA_AUDIO, frame);
-            } catch (IOException e) {
-                Log.w(TAG, "Failed to pass audio frame from encoder to network");
-            }
-        }
-    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -191,7 +152,8 @@ public class TestConnectionConnect extends AppCompatActivity {
 
             // Initialize video encoder
             try {
-                video_encoder = new VideoEncoder(video_format, camera_width, camera_height, camera_fps, bitrate_video, encoder_surface, video_encoder_callback);
+                video_encoder = new VideoEncoder(video_format, camera_width, camera_height, camera_fps, bitrate_video, encoder_surface);
+                video_encoder.setOutgoingMessagePipe(socket.getOutgoingMessagePipe());
             } catch (VideoEncoder.UnsupportedFormat e) {
                 Toast.makeText(this, R.string.test_call_video_encode_unsupported, Toast.LENGTH_SHORT).show();
             } catch (VideoEncoder.EncoderFailed e) {
@@ -202,6 +164,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         // Initialize video decoder
         try {
             video_decoder = new VideoDecoder(video_format, camera_width, camera_height, camera_fps, 15, preview_remote.getHolder());
+            socket.setIncomingMessagePipe(Connection.DATA_VIDEO, video_decoder.getIncomingMessagePipe());
         } catch (VideoDecoder.DecoderFailed e) {
             Toast.makeText(this, R.string.test_call_video_decode_failed, Toast.LENGTH_SHORT).show();
         } catch (VideoDecoder.UnsupportedFormat e) {
@@ -273,7 +236,9 @@ public class TestConnectionConnect extends AppCompatActivity {
         // Initialize audio encoder with mic permissions
         if (audio_handler == null) {
             try {
-                audio_handler = new AudioHandler(bitrate_audio, audio_encoder_callback);
+                audio_handler = new AudioHandler(bitrate_audio);
+                audio_handler.setOutgoingMessagePipe(socket.getOutgoingMessagePipe());
+                socket.setIncomingMessagePipe(Connection.DATA_AUDIO, audio_handler.getIncomingMessagePipe());
             } catch (AudioHandler.MicFailed e) {
                 Toast.makeText(this, R.string.test_call_audio_mic_failed, Toast.LENGTH_SHORT).show();
             } catch (AudioHandler.PlaybackFailed e) {

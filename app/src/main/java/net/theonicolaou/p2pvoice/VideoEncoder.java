@@ -16,19 +16,15 @@ public class VideoEncoder {
     public static class UnsupportedFormat extends Exception {}
     public static class EncoderFailed extends Exception {}
 
-    public interface Callback {
-        void onOutputFrameAvailable(byte[] frame);
-    }
-
     private static final String TAG = "VideoEncoder";
     private static final MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
 
     private final MediaCodec encoder;
     private Thread thread;
     private final MediaFormat format;
-    private final Callback upstream_callback;
     private final Surface input_surface;
     private boolean configured = false;
+    private ConnectionMessagePipe pipe_out = null;
 
     public static boolean checkInputSurfaceCompatibility(String mime, int width, int height) {
         MediaFormat format = MediaFormat.createVideoFormat(mime, width, height);
@@ -50,9 +46,8 @@ public class VideoEncoder {
         return false;
     }
 
-    VideoEncoder(String mime, int width, int height, int fps, int bitrate, @NonNull Surface input_surface, @NonNull Callback callback) throws UnsupportedFormat, EncoderFailed {
+    VideoEncoder(String mime, int width, int height, int fps, int bitrate, @NonNull Surface input_surface) throws UnsupportedFormat, EncoderFailed {
         Log.d(TAG, "Initialized with mime=" + mime + " width=" + width + " height=" + height + " fps=" + fps + " bitrate=" + bitrate + " input from surface");
-        this.upstream_callback = callback;
         this.input_surface = input_surface;
         format = MediaFormat.createVideoFormat(mime, width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
@@ -93,7 +88,10 @@ public class VideoEncoder {
                     buffer.get(frame, 0, info.size);
                     encoder.releaseOutputBuffer(index, false);
 
-                    upstream_callback.onOutputFrameAvailable(frame);
+                    if (!pipe_out.send(Connection.DATA_VIDEO, frame)) {
+                        Log.d(TAG, "Pipe closed, finishing early.");
+                        break;
+                    }
                 }
             }
             Log.i(TAG, "Output buffer thread has finished.");
@@ -127,5 +125,9 @@ public class VideoEncoder {
     public void release() {
         Log.d(TAG, "Releasing resources");
         encoder.release();
+    }
+
+    public void setOutgoingMessagePipe(ConnectionMessagePipe pipe) {
+        this.pipe_out = pipe;
     }
 }

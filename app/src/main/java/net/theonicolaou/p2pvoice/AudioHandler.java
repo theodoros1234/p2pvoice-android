@@ -15,42 +15,37 @@ import com.theeasiestway.opus.Constants;
 import com.theeasiestway.opus.Opus;
 
 import java.nio.ByteBuffer;
-import java.util.concurrent.ArrayBlockingQueue;
 
 public class AudioHandler {
     public static class MicFailed extends Exception {}
     public static class PlaybackFailed extends Exception {}
 
-    public interface Callback {
-        void onChunkAvailable(byte[] data);
-    }
-
     private static final String TAG = "AudioHandler";
     private static final int sample_rate = 48000;
     private static final int buffer_size_wanted = sample_rate * 2; // in bytes, 1s of audio data
-    private static final int frame_size = 480;  // in bytes, 20ms
+    private static final int frame_size = 1920;  // in bytes, 50ms
+    private static final int queue_size = 20;
     private static final Constants.SampleRate opus_sample_rate = Constants.SampleRate.Companion._48000();
     private static final Constants.Channels opus_channels = Constants.Channels.Companion.mono();
     private static final Constants.Application opus_application = Constants.Application.Companion.voip();
     private static final Constants.FrameSize opus_frame_size = Constants.FrameSize.Companion._custom(frame_size / 2);   // in samples
 
-    private AudioRecord recorder = null;
-    private AudioTrack player = null;
+    private AudioRecord recorder;
+    private AudioTrack player;
     private final Opus opus = new Opus();
     private final AudioAttributes audio_attributes;
     private final AudioFormat audio_format;
     private final int buffer_size;
     private Constants.Bitrate opus_bitrate;
     private Thread thread_encoder, thread_decoder;
-    private final Callback upstream_callback;
-    private final ArrayBlockingQueue<byte[]> queue_incoming;
+    private final ConnectionMessagePipe pipe_in;
+    private ConnectionMessagePipe pipe_out = null;
     private boolean started_encoding = false, started_decoding, muted = false;
     private volatile boolean thread_encoder_work;
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
-    AudioHandler(int bitrate, Callback callback) throws MicFailed, PlaybackFailed {
+    AudioHandler(int bitrate) throws MicFailed, PlaybackFailed {
         Log.d(TAG, "Creating for bitrate=" + bitrate);
-        this.upstream_callback = callback;
 
         // Make sure buffer size is above the min acceptable
         buffer_size = Math.max(
@@ -77,7 +72,6 @@ public class AudioHandler {
         );
         if (recorder.getState() == AudioRecord.STATE_UNINITIALIZED)
             throw new MicFailed();
-        Log.d(TAG, "AudioRecorder has recording rate of " + recorder.getSampleRate() + " Hz");
 
         audio_attributes = new AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_VOICE_COMMUNICATION)
@@ -97,11 +91,10 @@ public class AudioHandler {
         );
         if (player.getState() == AudioTrack.STATE_UNINITIALIZED)
             throw new PlaybackFailed();
-        Log.d(TAG, "AudioTrack has playback rate of " + player.getPlaybackRate() + " Hz");
-
-        queue_incoming = new ArrayBlockingQueue<>(buffer_size / frame_size);     // TODO: have its own queue size
 
         opus_bitrate = Constants.Bitrate.Companion.instance(bitrate);
+
+        pipe_in = new ConnectionMessagePipe(queue_size, true);
     }
 
     public void startEncoder() {
@@ -130,7 +123,8 @@ public class AudioHandler {
                 }
                 raw_audio_buffer.get(raw_audio_array, 0, bytes_read);
                 encoded_audio = opus.encode(raw_audio_array, opus_frame_size);
-                upstream_callback.onChunkAvailable(encoded_audio);
+                if (pipe_out != null && encoded_audio != null)
+                    pipe_out.send(Connection.DATA_AUDIO, encoded_audio);
             }
             recorder.stop();
         });
@@ -169,20 +163,21 @@ public class AudioHandler {
         Log.i(TAG, "Starting decoder");
 
         opus.decoderInit(opus_sample_rate, opus_channels);
-        queue_incoming.clear();
+        pipe_in.openReceiver();
 
         thread_decoder = new Thread(() -> {
-            byte[] encoded_audio, raw_audio_array;
+            ConnectionMessage encoded_audio;
+            byte[] raw_audio_array;
             player.play();
             while (true) {
-                try {
-                    encoded_audio = queue_incoming.take();
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                }
-                if (encoded_audio.length == 0)
+                encoded_audio = pipe_in.receive();
+                if (encoded_audio == null)
                     break;
-                raw_audio_array = opus.decode(encoded_audio, opus_frame_size);
+                if (encoded_audio.type != Connection.DATA_AUDIO) {
+                    Log.e(TAG, "Received frame of wrong message type " + encoded_audio.type);
+                    continue;
+                }
+                raw_audio_array = opus.decode(encoded_audio.data, opus_frame_size);
                 if (raw_audio_array != null)
                     player.write(ByteBuffer.wrap(raw_audio_array), frame_size, AudioTrack.WRITE_BLOCKING);
             }
@@ -201,8 +196,8 @@ public class AudioHandler {
         }
         Log.i(TAG, "Stopping decoder");
 
+        pipe_in.closeReceiver();
         try {
-            queue_incoming.put(new byte[0]);
             thread_decoder.join();
         } catch (InterruptedException e) {
             throw new RuntimeException(e);
@@ -210,7 +205,6 @@ public class AudioHandler {
 
         opus.decoderRelease();
         started_decoding = false;
-        queue_incoming.clear();
         Log.i(TAG, "Decoder stopped");
     }
 
@@ -224,13 +218,11 @@ public class AudioHandler {
         player.release();
     }
 
-    public void pushIncomingFrame(byte[] frame) {
-        if (!started_decoding)
-            Log.e(TAG, "Can't push incoming frame when decoder is stopped");
-        try {
-            queue_incoming.put(frame);
-        } catch (InterruptedException e) {
-            throw new RuntimeException(e);
-        }
+    public void setOutgoingMessagePipe(ConnectionMessagePipe pipe) {
+        this.pipe_out = pipe;
+    }
+
+    public ConnectionMessagePipe getIncomingMessagePipe() {
+        return pipe_in;
     }
 }
