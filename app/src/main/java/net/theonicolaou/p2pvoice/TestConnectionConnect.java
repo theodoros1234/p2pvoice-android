@@ -31,7 +31,7 @@ public class TestConnectionConnect extends AppCompatActivity {
 
     private static final int port = 8798;
     private static final int bitrate_video = 1000000;
-    private static final int bitrate_audio = 50000;
+    private static final int bitrate_audio = 80000;
     private static final String video_format = MediaFormat.MIMETYPE_VIDEO_AVC;
     private static final int camera_width = 1280, camera_height = 720, camera_fps = 30;
 

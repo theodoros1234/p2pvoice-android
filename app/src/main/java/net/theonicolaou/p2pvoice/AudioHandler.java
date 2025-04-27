@@ -8,6 +8,9 @@ import android.media.AudioManager;
 import android.media.AudioRecord;
 import android.media.AudioTrack;
 import android.media.MediaRecorder;
+import android.media.audiofx.AudioEffect;
+import android.media.audiofx.AutomaticGainControl;
+import android.media.audiofx.NoiseSuppressor;
 import android.util.Log;
 
 import androidx.annotation.RequiresPermission;
@@ -25,7 +28,7 @@ public class AudioHandler {
 
     private static final String TAG = "AudioHandler";
     private static final int sample_rate = 48000;
-    private static final int buffer_size_wanted = sample_rate * 2; // in bytes, 1s of audio data
+    private static final int buffer_size_wanted = sample_rate; // in bytes, 0.5s of audio data
     private static final int frame_size = 1920;  // in bytes, 50ms
     private static final int queue_size = 20;
     private static final Constants.SampleRate opus_sample_rate = Constants.SampleRate.Companion._48000();
@@ -38,6 +41,7 @@ public class AudioHandler {
     private final AudioManager audio_manager;
     private AudioRecord recorder;
     private AudioTrack player;
+    private final AudioEffect noise_suppressor, auto_gain;
     private final Opus opus = new Opus();
     private final AudioAttributes audio_attributes;
     private final AudioFormat audio_format;
@@ -119,6 +123,10 @@ public class AudioHandler {
 
         if (!audio_outputs.isEmpty())
             player.setPreferredDevice(audio_outputs.get(0));
+
+        // Apply noise suppression and auto gain to mic
+        noise_suppressor = NoiseSuppressor.create(recorder.getAudioSessionId());
+        auto_gain = AutomaticGainControl.create(recorder.getAudioSessionId());
     }
 
     public int changeOutput() {
@@ -146,6 +154,10 @@ public class AudioHandler {
 
         thread_encoder = new Thread(() -> {
             recorder.startRecording();
+            if (noise_suppressor != null)
+                noise_suppressor.setEnabled(true);
+            if (auto_gain != null)
+                auto_gain.setEnabled(true);
             ByteBuffer raw_audio_buffer = ByteBuffer.allocateDirect(frame_size);
             byte[] raw_audio_array = new byte[frame_size];
             byte[] encoded_audio;
