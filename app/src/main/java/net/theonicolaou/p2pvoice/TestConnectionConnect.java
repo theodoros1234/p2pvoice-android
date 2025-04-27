@@ -35,12 +35,12 @@ public class TestConnectionConnect extends AppCompatActivity {
     private static final String video_format = MediaFormat.MIMETYPE_VIDEO_AVC;
     private static final int camera_width = 1280, camera_height = 720, camera_fps = 30;
 
-    private TextView info;
+    private TextView bitrate_info;
     private String host_address;
     private Boolean is_server;
     private SurfaceView preview_remote, preview_local;
-    private Button button_mute, button_audio_output, button_camera_switch, button_call_end;
-    private boolean started = false;
+    private Button button_mute, button_audio_output, button_camera_switch, button_call_end, button_camera_toggle;
+    private boolean started = false, start_camera = true;
     private Connection socket;
     private VideoEncoder video_encoder;
     private VideoDecoder video_decoder;
@@ -88,6 +88,13 @@ public class TestConnectionConnect extends AppCompatActivity {
         public void onError(Exception e) {}
     };
 
+    private final VideoEncoder.StatsListener video_encoder_stats = new VideoEncoder.StatsListener() {
+        @Override
+        public void onBitrateChange(int bitrate) {
+            bitrate_info.setText(getString(R.string.bitrate_display, bitrate/1000));
+        }
+    };
+
     private final ActivityResultLauncher<String> permission_launcher =
             registerForActivityResult(new ActivityResultContracts.RequestPermission(), granted -> {
         if (granted) {
@@ -110,9 +117,11 @@ public class TestConnectionConnect extends AppCompatActivity {
         button_mute = findViewById(R.id.button_mute);
         button_audio_output = findViewById(R.id.button_audio_output);
         button_camera_switch = findViewById(R.id.button_camera_switch);
+        button_camera_toggle = findViewById(R.id.button_camera_toggle);
         button_call_end = findViewById(R.id.button_call_end);
         preview_local = findViewById(R.id.preview_local);
         preview_remote = findViewById(R.id.preview_remote);
+        bitrate_info = findViewById(R.id.bitrate);
 
         button_mute.setOnClickListener(view -> {
             if (audio_handler != null) {
@@ -131,6 +140,16 @@ public class TestConnectionConnect extends AppCompatActivity {
                 } catch (CameraAccessException e) {
                     Toast.makeText(TestConnectionConnect.this, R.string.camera_failed, Toast.LENGTH_SHORT).show();
                 }
+            }
+        });
+
+        button_camera_toggle.setOnClickListener(view -> {
+            if (camera != null && started) {
+                start_camera = !start_camera;
+                if (start_camera)
+                    camera.start();
+                else
+                    camera.stop();
             }
         });
 
@@ -197,7 +216,7 @@ public class TestConnectionConnect extends AppCompatActivity {
 
             // Initialize video encoder
             try {
-                video_encoder = new VideoEncoder(video_format, camera_width, camera_height, camera_fps, bitrate_video, encoder_surface);
+                video_encoder = new VideoEncoder(video_format, camera_width, camera_height, camera_fps, bitrate_video, encoder_surface, video_encoder_stats);
                 video_encoder.setOutgoingMessagePipe(socket.getOutgoingMessagePipe());
             } catch (VideoEncoder.UnsupportedFormat e) {
                 Toast.makeText(this, R.string.test_call_video_encode_unsupported, Toast.LENGTH_SHORT).show();
@@ -299,7 +318,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         socket.start();
         // Video encoding/decoding will be started later when connection is active
 
-        if (camera != null)
+        if (camera != null && start_camera)
             camera.start();
     }
 

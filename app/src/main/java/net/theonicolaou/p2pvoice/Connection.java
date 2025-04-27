@@ -6,7 +6,7 @@ import java.io.IOException;
 
 public abstract class Connection {
     public static final int MSG_SIZE_MAX = 2 * 1024 * 1024;
-    protected static final int PIPE_OUT_CAPACITY = 80;
+    protected static final int PIPE_OUT_CAPACITY = 130;
 
     // Used to signal new connections
     public interface StatusListener {

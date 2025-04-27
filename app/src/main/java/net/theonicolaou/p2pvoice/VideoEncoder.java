@@ -4,6 +4,9 @@ import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
 import android.media.MediaCodecList;
 import android.media.MediaFormat;
+import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
 import android.view.Surface;
 
@@ -16,14 +19,22 @@ public class VideoEncoder {
     public static class UnsupportedFormat extends Exception {}
     public static class EncoderFailed extends Exception {}
 
+    public abstract static class StatsListener {
+        public abstract void onBitrateChange(int bitrate);
+    }
+
     private static final String TAG = "VideoEncoder";
     private static final MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
+    private static final int min_bitrate = 400000, max_bitrate = 6000000, bitrate_step = 100000;
 
     private final MediaCodec encoder;
+    private final Handler upstream_thread;
+    private final StatsListener stats_listener;
     private Thread thread;
     private final MediaFormat format;
     private final Surface input_surface;
     private boolean configured = false, started = false, released = false;
+    private int bitrate;
     private ConnectionMessagePipe pipe_out = null;
 
     public static boolean checkInputSurfaceCompatibility(String mime, int width, int height) {
@@ -46,9 +57,12 @@ public class VideoEncoder {
         return false;
     }
 
-    VideoEncoder(String mime, int width, int height, int fps, int bitrate, @NonNull Surface input_surface) throws UnsupportedFormat, EncoderFailed {
+    VideoEncoder(String mime, int width, int height, int fps, int bitrate, @NonNull Surface input_surface, @NonNull StatsListener stats_listener) throws UnsupportedFormat, EncoderFailed {
         Log.d(TAG, "Initialized with mime=" + mime + " width=" + width + " height=" + height + " fps=" + fps + " bitrate=" + bitrate + " input from surface");
         this.input_surface = input_surface;
+        this.bitrate = bitrate;
+        this.stats_listener = stats_listener;
+        this.upstream_thread = new Handler(Looper.getMainLooper());
         format = MediaFormat.createVideoFormat(mime, width, height);
         format.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
         String codec = list.findEncoderForFormat(format);
@@ -92,11 +106,35 @@ public class VideoEncoder {
                         Log.d(TAG, "Pipe closed, finishing early.");
                         break;
                     }
+
+                    switch (pipe_out.getRateHint()) {
+                        case ConnectionMessagePipe.RATE_OVERFLOW:
+                            if (bitrate > min_bitrate) {
+                                bitrate = Math.max(bitrate - bitrate_step, min_bitrate);
+                                Bundle new_param = new Bundle();
+                                new_param.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrate);
+                                encoder.setParameters(new_param);
+                                upstream_thread.post(() -> stats_listener.onBitrateChange(bitrate));
+                            }
+                            break;
+
+                        case ConnectionMessagePipe.RATE_UNDERFLOW:
+                            if (bitrate < max_bitrate) {
+                                bitrate = Math.min(bitrate + bitrate_step, max_bitrate);
+                                Bundle new_param = new Bundle();
+                                new_param.putInt(MediaCodec.PARAMETER_KEY_VIDEO_BITRATE, bitrate);
+                                encoder.setParameters(new_param);
+                                upstream_thread.post(() -> stats_listener.onBitrateChange(bitrate));
+                            }
+                            break;
+                    }
                 }
             }
             Log.i(TAG, "Output buffer thread has finished.");
         });
 
+        bitrate = format.getInteger(MediaFormat.KEY_BIT_RATE);
+        upstream_thread.post(() -> stats_listener.onBitrateChange(bitrate));
         encoder.configure(format, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
         encoder.setInputSurface(input_surface);
         configured = true;

@@ -13,12 +13,17 @@ import java.util.concurrent.locks.ReentrantLock;
 public class ConnectionMessagePipe {
     private final String TAG = "ConnectionMessagePipe";
 
+    public static final int RATE_UNDERFLOW = -1;
+    public static final int RATE_NORMAL = 0;
+    public static final int RATE_OVERFLOW = 1;
+
     private final Lock lock;
     private final Condition condition_receiver, condition_sender;
     private final Queue<ConnectionMessage> queue;
     private boolean open_receiver = false, open_sender = false;
     private final boolean drop_frames;
     private final int capacity;
+    private int rate_hint;
 
     ConnectionMessagePipe(int capacity, boolean drop_frames) {
         this.capacity = capacity;
@@ -35,6 +40,9 @@ public class ConnectionMessagePipe {
 
         lock.lock();
         try {
+            if (queue.size() > capacity / 4)
+                rate_hint = RATE_OVERFLOW;
+
             if (drop_frames && (queue.size() >= capacity)) {
                 Log.w(TAG, "Dropping frame on full pipe, size=" + queue.size());
                 return false;
@@ -60,6 +68,11 @@ public class ConnectionMessagePipe {
     public ConnectionMessage receive() {
         lock.lock();
         try {
+            if (queue.isEmpty())
+                rate_hint = RATE_UNDERFLOW;
+            else if (queue.size() < capacity / 4)
+                rate_hint = RATE_NORMAL;
+
             while (open_receiver && open_sender && queue.isEmpty()) {
                 condition_receiver.awaitUninterruptibly();
             }
@@ -105,6 +118,15 @@ public class ConnectionMessagePipe {
             queue.clear();
             condition_sender.signalAll();
             condition_receiver.signalAll();
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    public int getRateHint() {
+        lock.lock();
+        try {
+            return rate_hint;
         } finally {
             lock.unlock();
         }

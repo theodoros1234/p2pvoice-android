@@ -34,7 +34,6 @@ public class VideoDecoder {
     private final MediaCodec.Callback decoder_callback = new MediaCodec.Callback() {
         @Override
         public void onInputBufferAvailable(@NonNull MediaCodec decoder, int i) {
-            Log.d(TAG, "onInputBufferAvailable called");
             // Ignore anything after an EOF
             if (eof_sent)
                 return;

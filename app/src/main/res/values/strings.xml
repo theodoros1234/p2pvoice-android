@@ -38,4 +38,6 @@
     <string name="mute">Mute</string>
     <string name="unmute">Unmute</string>
     <string name="switch_camera">Switch Camera</string>
+    <string name="toggle_camera">Toggle Camera</string>
+    <string name="bitrate_display">Video bitrate: %d Kbps</string>
 </resources>
