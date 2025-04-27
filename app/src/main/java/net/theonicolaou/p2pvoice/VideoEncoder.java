@@ -23,7 +23,7 @@ public class VideoEncoder {
     private Thread thread;
     private final MediaFormat format;
     private final Surface input_surface;
-    private boolean configured = false;
+    private boolean configured = false, started = false, released = false;
     private ConnectionMessagePipe pipe_out = null;
 
     public static boolean checkInputSurfaceCompatibility(String mime, int width, int height) {
@@ -103,14 +103,29 @@ public class VideoEncoder {
     }
 
     public void start() {
+        if (released) {
+            Log.e(TAG, "Can't start, resources were released");
+            return;
+        }
+        if (started) {
+            Log.e(TAG, "Already started");
+            return;
+        }
+
         Log.d(TAG, "Starting");
         if (!configured)
             configure();
         encoder.start();
         thread.start();
+        started = true;
     }
 
     public void stop() {
+        if (!started) {
+            Log.e(TAG, "Already stopped");
+            return;
+        }
+
         Log.d(TAG, "Stopping");
         encoder.signalEndOfInputStream();
         try {
@@ -120,11 +135,15 @@ public class VideoEncoder {
         }
         encoder.reset();
         configured = false;
+        started = false;
     }
 
     public void release() {
         Log.d(TAG, "Releasing resources");
+        if (started)
+            stop();
         encoder.release();
+        released = true;
     }
 
     public void setOutgoingMessagePipe(ConnectionMessagePipe pipe) {

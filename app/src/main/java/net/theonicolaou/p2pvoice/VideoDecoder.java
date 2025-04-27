@@ -28,7 +28,7 @@ public class VideoDecoder {
     private long timestamp = 0;
     private final long timestamp_interval;
     private final ConnectionMessagePipe pipe_in;
-    private boolean start_requested = false;
+    private boolean start_requested = false, released = false;
     private boolean started = false, surface_ready, eof_sent = false;
 
     private final MediaCodec.Callback decoder_callback = new MediaCodec.Callback() {
@@ -142,6 +142,10 @@ public class VideoDecoder {
     private void startIfReady() {
         if (started || !start_requested || !surface_ready)
             return;
+        if (released) {
+            Log.e(TAG, "Can't start, resources were released");
+            return;
+        }
 
         Log.i(TAG, "Starting");
         pipe_in.openReceiver();
@@ -189,8 +193,11 @@ public class VideoDecoder {
 
     public void release() {
         Log.d(TAG, "Releasing resources");
+        start_requested = false;
+        stopIfUnready();
         output_surface.removeCallback(surface_callback);
         decoder.release();
+        released = true;
     }
 
     public ConnectionMessagePipe getIncomingMessagePipe() {

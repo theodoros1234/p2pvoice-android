@@ -22,11 +22,11 @@
             android:text="Mute" />
 
         <Button
-            android:id="@+id/button_camera_toggle"
+            android:id="@+id/button_audio_output"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="Toggle Camera" />
+            android:text="@string/audio_output_earpiece" />
     </LinearLayout>
 
     <SurfaceView

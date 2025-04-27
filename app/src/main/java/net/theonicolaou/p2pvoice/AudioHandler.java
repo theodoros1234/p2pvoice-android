@@ -2,6 +2,7 @@ package net.theonicolaou.p2pvoice;
 
 import android.Manifest;
 import android.media.AudioAttributes;
+import android.media.AudioDeviceInfo;
 import android.media.AudioFormat;
 import android.media.AudioManager;
 import android.media.AudioRecord;
@@ -15,6 +16,8 @@ import com.theeasiestway.opus.Constants;
 import com.theeasiestway.opus.Opus;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
+import java.util.List;
 
 public class AudioHandler {
     public static class MicFailed extends Exception {}
@@ -30,6 +33,9 @@ public class AudioHandler {
     private static final Constants.Application opus_application = Constants.Application.Companion.voip();
     private static final Constants.FrameSize opus_frame_size = Constants.FrameSize.Companion._custom(frame_size / 2);   // in samples
 
+    private final List<AudioDeviceInfo> audio_outputs = new ArrayList<>();
+    private int audio_output_current = 0;
+    private final AudioManager audio_manager;
     private AudioRecord recorder;
     private AudioTrack player;
     private final Opus opus = new Opus();
@@ -40,12 +46,13 @@ public class AudioHandler {
     private Thread thread_encoder, thread_decoder;
     private final ConnectionMessagePipe pipe_in;
     private ConnectionMessagePipe pipe_out = null;
-    private boolean started_encoding = false, started_decoding, muted = false;
+    private boolean started_encoding = false, started_decoding, muted = false, released = false;
     private volatile boolean thread_encoder_work;
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
-    AudioHandler(int bitrate) throws MicFailed, PlaybackFailed {
+    AudioHandler(int bitrate, AudioManager audio_manager) throws MicFailed, PlaybackFailed {
         Log.d(TAG, "Creating for bitrate=" + bitrate);
+        this.audio_manager = audio_manager;
 
         // Make sure buffer size is above the min acceptable
         buffer_size = Math.max(
@@ -95,6 +102,35 @@ public class AudioHandler {
         opus_bitrate = Constants.Bitrate.Companion.instance(bitrate);
 
         pipe_in = new ConnectionMessagePipe(queue_size, true);
+
+        // Get output devices
+        if (audio_manager != null) {
+            AudioDeviceInfo[] devices = audio_manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+            for (AudioDeviceInfo device : devices) {
+                int type = device.getType();
+                if (type == AudioDeviceInfo.TYPE_BUILTIN_EARPIECE ||
+                    type == AudioDeviceInfo.TYPE_BUILTIN_SPEAKER  ||
+                    type == AudioDeviceInfo.TYPE_BLE_HEADSET      ||
+                    type == AudioDeviceInfo.TYPE_BLE_SPEAKER) {
+                    audio_outputs.add(device);
+                }
+            }
+        }
+
+        if (!audio_outputs.isEmpty())
+            player.setPreferredDevice(audio_outputs.get(0));
+    }
+
+    public int changeOutput() {
+        if (audio_outputs.isEmpty())
+            return -1;
+
+        audio_output_current++;
+        if (audio_output_current >= audio_outputs.size())
+            audio_output_current = 0;
+        AudioDeviceInfo current = audio_outputs.get(audio_output_current);
+        player.setPreferredDevice(current);
+        return current.getType();
     }
 
     public void startEncoder() {
@@ -135,6 +171,10 @@ public class AudioHandler {
     }
 
     public void stopEncoder() {
+        if (released) {
+            Log.e(TAG, "Can't start, resources were released");
+            return;
+        }
         if (!started_encoding) {
             Log.e(TAG, "Encoder already stopped");
             return;
@@ -156,6 +196,10 @@ public class AudioHandler {
     }
 
     public void startDecoder() {
+        if (released) {
+            Log.e(TAG, "Can't start, resources were released");
+            return;
+        }
         if (started_decoding) {
             Log.e(TAG, "Decoder already started");
             return;
@@ -216,6 +260,7 @@ public class AudioHandler {
             stopDecoder();
         recorder.release();
         player.release();
+        released = true;
     }
 
     public void setOutgoingMessagePipe(ConnectionMessagePipe pipe) {

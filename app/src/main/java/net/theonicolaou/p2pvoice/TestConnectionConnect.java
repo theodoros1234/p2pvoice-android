@@ -4,14 +4,15 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.hardware.camera2.CameraAccessException;
+import android.media.AudioDeviceInfo;
+import android.media.AudioManager;
 import android.media.MediaCodec;
-import android.media.MediaCodecInfo;
-import android.media.MediaCodecList;
 import android.media.MediaFormat;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Surface;
 import android.view.SurfaceView;
+import android.view.View;
 import android.widget.Button;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -24,8 +25,6 @@ import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
-
-import java.io.IOException;
 
 public class TestConnectionConnect extends AppCompatActivity {
     private static final String TAG = "TestConnectionConnect";
@@ -40,6 +39,7 @@ public class TestConnectionConnect extends AppCompatActivity {
     private String host_address;
     private Boolean is_server;
     private SurfaceView preview_remote, preview_local;
+    private Button button_mute, button_audio_output;
     private boolean started = false;
     private Connection socket;
     private VideoEncoder video_encoder;
@@ -47,6 +47,7 @@ public class TestConnectionConnect extends AppCompatActivity {
     private AudioHandler audio_handler;
     private CallCamera camera;
     private Surface encoder_surface = null;
+    private AudioManager audio_manager;
 
     private final Connection.StatusListener socket_status_listener = new Connection.StatusListener() {
         @Override
@@ -106,17 +107,37 @@ public class TestConnectionConnect extends AppCompatActivity {
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
             return insets;
         });
-        Button button_mute = findViewById(R.id.button_mute);
-        Button button_camera_toggle = findViewById(R.id.button_camera_toggle);
+        button_mute = findViewById(R.id.button_mute);
+        button_audio_output = findViewById(R.id.button_audio_output);
         preview_local = findViewById(R.id.preview_local);
         preview_remote = findViewById(R.id.preview_remote);
 
+        button_audio_output.setOnClickListener(view -> {
+            if (audio_handler != null) {
+                int type = audio_handler.changeOutput();
+                switch (type) {
+                    case AudioDeviceInfo.TYPE_BUILTIN_EARPIECE:
+                        button_audio_output.setText(R.string.audio_output_earpiece);
+                        break;
+
+                    case AudioDeviceInfo.TYPE_BUILTIN_SPEAKER:
+                        button_audio_output.setText(R.string.audio_output_speakers);
+                        break;
+
+                    case AudioDeviceInfo.TYPE_BLE_HEADSET:
+                    case AudioDeviceInfo.TYPE_BLE_SPEAKER:
+                        button_audio_output.setText(R.string.audio_output_bluetooth);
+                        break;
+                }
+            }
+        });
+
         // Enable back button
-        ActionBar action_bar = getSupportActionBar();
-        if (action_bar != null) {
-            action_bar.setHomeButtonEnabled(true);
-            action_bar.setDisplayHomeAsUpEnabled(true);
-        }
+//        ActionBar action_bar = getSupportActionBar();
+//        if (action_bar != null) {
+//            action_bar.setHomeButtonEnabled(true);
+//            action_bar.setDisplayHomeAsUpEnabled(true);
+//        }
 
         // Handle intent
         Intent intent = getIntent();
@@ -174,11 +195,11 @@ public class TestConnectionConnect extends AppCompatActivity {
         // Audio handler will be initialized later after getting mic permissions
 
         // TEST
-        MediaCodecList list = new MediaCodecList(MediaCodecList.REGULAR_CODECS);
-        MediaCodecInfo[] info = list.getCodecInfos();
-        Log.i("GET_CODEC_INFO", "Codec list:");
-        for (MediaCodecInfo i : info) {
-            Log.i("GET_CODEC_INFO", i.getName() + " isEncoder=" + i.isEncoder());
+        audio_manager = this.getSystemService(AudioManager.class);
+        if (audio_manager != null) {
+            AudioDeviceInfo[] audio_devices = audio_manager.getDevices(AudioManager.GET_DEVICES_OUTPUTS);
+            for (AudioDeviceInfo device : audio_devices)
+                Log.w("TEST_AUDIO_DEVICES", device.getProductName() + " id=" + device.getId() + " type=" + device.getType());
         }
     }
 
@@ -236,7 +257,7 @@ public class TestConnectionConnect extends AppCompatActivity {
         // Initialize audio encoder with mic permissions
         if (audio_handler == null) {
             try {
-                audio_handler = new AudioHandler(bitrate_audio);
+                audio_handler = new AudioHandler(bitrate_audio, audio_manager);
                 audio_handler.setOutgoingMessagePipe(socket.getOutgoingMessagePipe());
                 socket.setIncomingMessagePipe(Connection.DATA_AUDIO, audio_handler.getIncomingMessagePipe());
             } catch (AudioHandler.MicFailed e) {
