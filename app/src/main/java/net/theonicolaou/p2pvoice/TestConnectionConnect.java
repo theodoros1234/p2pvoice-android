@@ -126,6 +126,7 @@ public class TestConnectionConnect extends AppCompatActivity {
             callStart();
         } else {
             Toast.makeText(this, R.string.test_call_permission_error, Toast.LENGTH_SHORT).show();
+            finish();
         }
     });
 
@@ -257,15 +258,6 @@ public class TestConnectionConnect extends AppCompatActivity {
         }
 
         if (encoder_surface != null) {
-            // Initialize camera
-            try {
-                camera = new CallCamera(this, camera_width, camera_height, preview_local.getHolder(), encoder_surface);
-                start_camera = true;
-            } catch (CameraAccessException e) {
-                Log.e(TAG, "Failed to initialize camera handler: CameraAccessException " + e.getMessage());
-                Toast.makeText(this, R.string.camera_failed, Toast.LENGTH_SHORT).show();
-            }
-
             // Initialize video encoder
             try {
                 video_encoder = new VideoEncoder(video_format, camera_width, camera_height, camera_fps, bitrate_video, encoder_surface, video_encoder_stats);
@@ -347,6 +339,17 @@ public class TestConnectionConnect extends AppCompatActivity {
         if (!getPackageManager().hasSystemFeature(PackageManager.FEATURE_CAMERA_ANY)) {
             Toast.makeText(this, R.string.test_call_camera_missing, Toast.LENGTH_SHORT).show();
             return;
+        }
+
+        // Initialize camera with mic permissions
+        if (encoder_surface != null) {
+            try {
+                camera = new CallCamera(this, camera_width, camera_height, preview_local.getHolder(), encoder_surface);
+                start_camera = true;
+            } catch (CameraAccessException e) {
+                Log.e(TAG, "Failed to initialize camera handler: CameraAccessException " + e.getMessage());
+                Toast.makeText(this, R.string.camera_failed, Toast.LENGTH_SHORT).show();
+            }
         }
 
         // Initialize audio encoder with mic permissions
