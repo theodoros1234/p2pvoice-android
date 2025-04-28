@@ -47,6 +47,7 @@ public class TestConnection extends AppCompatActivity {
     private final List<WifiP2pDevice> peer_list = new ArrayList<>();
     private TextView peer_list_placeholder;
     private ProgressBar peer_list_loading;
+    private MenuItem scan_button;
     boolean scanning = false, call_activity_running = false;
 
     private final BroadcastReceiver wifi_direct_receiver = new BroadcastReceiver() {
@@ -77,7 +78,8 @@ public class TestConnection extends AppCompatActivity {
                         peer_list_adapter.notifyDataSetChanged();
 
                         // Get connection info, which will launch the call activity if there's a connection
-                        wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
+                        if (!call_activity_running)
+                            wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
                         break;
 
                     case WifiP2pManager.WIFI_P2P_THIS_DEVICE_CHANGED_ACTION:
@@ -211,7 +213,8 @@ public class TestConnection extends AppCompatActivity {
                 }
             } else if (target.status == WifiP2pDevice.CONNECTED) {
                 // Already connected, request connection info to start voice call activity
-                wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
+                if (!call_activity_running)
+                    wifi_direct_manager.requestConnectionInfo(wifi_direct_channel, connection_listener);
             } else {
                 // Target device is unavailable
                 Toast.makeText(TestConnection.this, R.string.connection_failed, Toast.LENGTH_SHORT).show();
@@ -229,6 +232,8 @@ public class TestConnection extends AppCompatActivity {
         intent.putExtra(getPackageName() + ".HostAddress", info.groupOwnerAddress.getHostAddress());
         intent.putExtra(getPackageName() + ".IsServer", info.isGroupOwner);
         call_activity_running = true;
+        if (scanning)
+            onOptionsItemSelected(scan_button); // Press button to stop scanning
         startActivityForResult(intent, 0);
     };
 
@@ -275,15 +280,13 @@ public class TestConnection extends AppCompatActivity {
         super.onStart();
 
         registerReceiver(wifi_direct_receiver, intent_filter);
-        if (scanning)
-            startWifiDirectScan();
     }
 
     @Override
     protected void onStop() {
         super.onStop();
-        if (scanning)
-            stopWifiDirectScan();
+        if (scanning && scan_button != null)
+            onOptionsItemSelected(scan_button); // Press button to stop scanning
         unregisterReceiver(wifi_direct_receiver);
     }
 
@@ -291,6 +294,7 @@ public class TestConnection extends AppCompatActivity {
     public boolean onCreateOptionsMenu(Menu menu) {
         MenuInflater inflater = getMenuInflater();
         inflater.inflate(R.menu.test_connection_menu, menu);
+        scan_button = menu.findItem(R.id.test_connection_button_scan);
         return true;
     }
 
@@ -424,6 +428,7 @@ public class TestConnection extends AppCompatActivity {
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         Log.d("TestConnection", "onActivityResult: will disconnect from Wi-Fi Direct");
+        call_activity_running = true;
 
         // Disconnect from Wi-Fi Direct device when the call ends
         // Also get the manager and channel again if the activity was unloaded/crashed since starting the call
@@ -447,7 +452,6 @@ public class TestConnection extends AppCompatActivity {
             @Override
             public void onFailure(int i) {
                 Log.d("TestConnection", "onActivityResult: group remove failed");
-                Toast.makeText(TestConnection.this, R.string.device_disconnect_failed, Toast.LENGTH_LONG).show();
                 call_activity_running = false;
             }
         });

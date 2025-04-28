@@ -29,6 +29,7 @@ public class CallCamera {
     private final CameraManager camera_manager;
     private CameraDevice camera_current;
     private CameraCaptureSession camera_session;
+    private int camera_front_id = -1;
 
     private boolean surface_ready = false, camera_ready = false, encoder_ready = false;
     private boolean started = false, start_requested = false, stop_requested = false;
@@ -124,6 +125,7 @@ public class CallCamera {
                 Log.d(TAG, "Found front camera id=" + camera);
                 camera_list.add(camera);
                 found_front = true;
+                camera_front_id = camera_index;
             } else if (!found_back && facing == CameraCharacteristics.LENS_FACING_BACK) {
                 Log.d(TAG, "Found back camera id=" + camera);
                 camera_list.add(camera);
@@ -155,6 +157,13 @@ public class CallCamera {
         if (camera_index >= camera_list.size())
             camera_index = 0;
         configureCamera();
+    }
+
+    public int getRotation() {
+        if (camera_index == camera_front_id)
+            return 270;
+        else
+            return 90;
     }
 
     private void startIfReady() {

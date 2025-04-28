@@ -30,6 +30,7 @@ public class VideoDecoder {
     private final ConnectionMessagePipe pipe_in;
     private boolean start_requested = false, released = false;
     private boolean started = false, surface_ready, eof_sent = false;
+    private int rotation = 270;
 
     private final MediaCodec.Callback decoder_callback = new MediaCodec.Callback() {
         @Override
@@ -130,7 +131,7 @@ public class VideoDecoder {
         format.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
         format.setInteger(MediaFormat.KEY_CAPTURE_RATE, fps);
         format.setInteger(MediaFormat.KEY_PUSH_BLANK_BUFFERS_ON_STOP, 1);
-        format.setInteger(MediaFormat.KEY_ROTATION, 270);
+        format.setInteger(MediaFormat.KEY_ROTATION, rotation);
 
         try {
             decoder = MediaCodec.createByCodecName(codec);
@@ -209,5 +210,9 @@ public class VideoDecoder {
 
     public ConnectionMessagePipe getIncomingMessagePipe() {
         return pipe_in;
+    }
+
+    public void setRotation(int rotation) {
+        format.setInteger(MediaFormat.KEY_ROTATION, rotation);
     }
 }

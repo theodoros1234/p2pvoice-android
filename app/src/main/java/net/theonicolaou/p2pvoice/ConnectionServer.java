@@ -18,6 +18,7 @@ import java.nio.ByteOrder;
 
 public class ConnectionServer extends Connection {
     private static final String TAG = "ConnectionServer";
+    private static final int reconnection_delay = 1000;
 
     private final InetSocketAddress address;
     private boolean signal_shutdown = false;
@@ -43,7 +44,17 @@ public class ConnectionServer extends Connection {
     }
 
     private void threadIncoming() {
-        boolean signal_shutdown = false;
+        boolean signal_shutdown = false, end_call = false;
+
+        // Don't start immediately, so the activity gets the chance to fully load
+        synchronized (this) {
+            if (!this.signal_shutdown) {
+                try {
+                    wait(reconnection_delay);
+                } catch (InterruptedException ignored) {}
+            }
+            signal_shutdown = this.signal_shutdown;
+        }
 
         // Initialize and bind server socket
         ServerSocket socket_server;
@@ -64,7 +75,7 @@ public class ConnectionServer extends Connection {
             return;
         }
 
-        while (!signal_shutdown) {
+        while (!signal_shutdown && !end_call) {
             InputStream socket_reader;
             OutputStream socket_writer;
 
@@ -185,6 +196,22 @@ public class ConnectionServer extends Connection {
                                     pipe_in_audio.send(type, message);
                                 break;
 
+                            case Connection.DATA_VIDEO_STOP:
+                                listener.onVideoStop();
+                                break;
+
+                            case Connection.DATA_VIDEO_START_90:
+                                listener.onVideoStart(90);
+                                break;
+
+                            case Connection.DATA_VIDEO_START_270:
+                                listener.onVideoStart(270);
+                                break;
+
+                            case Connection.DATA_END_CALL:
+                                end_call = true;
+                                break;
+
                             default:
                                 Log.w(TAG, "Ignoring message of type=" + type + " size=" + size);
                         }
@@ -196,6 +223,7 @@ public class ConnectionServer extends Connection {
             }
 
             // Shut down and close socket
+            listener.onVideoStop();
             main_thread.post(listener::onDisconnect);
             pipe_out.closeReceiver();
             if (pipe_in_video != null)
@@ -213,7 +241,12 @@ public class ConnectionServer extends Connection {
                 } catch (IOException ignored) {}
                 this.socket = null;
 
-                // Check if shutting down
+                // Check if shutting down and pause before reconnecting
+                if (!this.signal_shutdown && !end_call) {
+                    try {
+                        wait(reconnection_delay);
+                    } catch (InterruptedException ignored) {}
+                }
                 signal_shutdown = this.signal_shutdown;
             }
         }
@@ -226,6 +259,8 @@ public class ConnectionServer extends Connection {
             } catch (IOException ignored) {}
             this.socket_server = null;
         }
+        if (end_call)
+            main_thread.post(listener::onEndCall);
         Log.d(TAG, "Stopped socket thread.");
     }
 

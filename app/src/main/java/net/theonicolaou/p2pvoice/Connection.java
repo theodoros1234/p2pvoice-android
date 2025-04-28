@@ -13,15 +13,21 @@ public abstract class Connection {
         void onConnect();
         void onDisconnect();
         void onError(Exception e);
+        void onVideoStop();
+        void onVideoStart(int degrees);
+        void onEndCall();
     }
 
     public static class InvalidMessage extends IllegalArgumentException {}
     public static class ConnectionClosed extends IOException {}
 
     // Constants for packet types
-    public static final int DATA_CONTROL = 0;
-    public static final int DATA_VIDEO = 1;
-    public static final int DATA_AUDIO = 2;
+    public static final int DATA_VIDEO = 0;
+    public static final int DATA_AUDIO = 1;
+    public static final int DATA_VIDEO_STOP = 2;
+    public static final int DATA_VIDEO_START_90 = 3;
+    public static final int DATA_VIDEO_START_270 = 4;
+    public static final int DATA_END_CALL = 5;
 
     public abstract void start();
     public abstract void stop();
